@@ -35,45 +35,20 @@ public := {"keys": [
 
 allowed_issuers := ["cloud", "api-server"]
 
-jwt := io.jwt.encode_sign(
+valid_jwt := io.jwt.encode_sign(
 	{
 		"typ": "JWT",
 		"alg": "ES512",
 	},
 	{
 		"iss": "api-server",
-		"sub": "1234567890",
+		"sub": "johndoe@github",
 		"name": "John Doe",
 		"iat": time.now_ns() / 1000000000,
 		"nbf": (time.now_ns() / 1000000000) - 100,
 		"exp": (time.now_ns() / 1000000000) + 100,
-		"permissions": {"project-a": [
-			"/api.v1.ClusterService/Get",
-			"/api.v1.ClusterService/Get",
-			"/api.v1.ClusterService/List",
-			"/api.v1.ClusterService/Create",
-			"/api.v1.ClusterService/Update",
-			"/api.v1.ClusterService/Delete",
-		]},
 	},
 	private1,
-)
-
-admin_jwt := io.jwt.encode_sign(
-	{
-		"typ": "JWT",
-		"alg": "ES512",
-	},
-	{
-		"iss": "api-server",
-		"sub": "1234567890",
-		"name": "Andrew Admin",
-		"iat": time.now_ns() / 1000000000,
-		"nbf": (time.now_ns() / 1000000000) - 100,
-		"exp": (time.now_ns() / 1000000000) + 100,
-		"roles": {"*": "admin"},
-	},
-	private2,
 )
 
 jwt_with_wrong_secret := io.jwt.encode_sign(
@@ -83,27 +58,11 @@ jwt_with_wrong_secret := io.jwt.encode_sign(
 	},
 	{
 		"iss": "api-server",
-		"sub": "1234567890",
+		"sub": "johndoe@github",
 		"name": "John Doe",
 		"iat": time.now_ns() / 1000000000,
 		"nbf": (time.now_ns() / 1000000000) - 100,
 		"exp": (time.now_ns() / 1000000000) + 100,
-		"permissions": {
-			"project-a": [
-				"/api.v1.ClusterService/Get",
-				"/api.v1.ClusterService/List",
-				"/api.v1.ClusterService/Create",
-				"/api.v1.ClusterService/Update",
-				"/api.v1.ClusterService/Delete",
-			],
-			"project-b": [
-				"/api.v1.ClusterService/Get",
-				"/api.v1.ClusterService/List",
-				"/api.v1.ClusterService/Create",
-				"/api.v1.ClusterService/Update",
-				"/api.v1.ClusterService/Delete",
-			],
-		},
 	},
 	private1,
 )
@@ -115,137 +74,11 @@ jwt_with_wrong_issuer := io.jwt.encode_sign(
 	},
 	{
 		"iss": "someone-evil",
-		"sub": "1234567890",
-		"name": "John Doe",
-		"iat": time.now_ns() / 1000000000,
-		"nbf": (time.now_ns() / 1000000000) - 100,
-		"exp": (time.now_ns() / 1000000000) + 100,
-		"permissions": {"project-a": [
-			"/api.v1.ClusterService/Get",
-			"/api.v1.ClusterService/Get",
-			"/api.v1.ClusterService/List",
-			"/api.v1.ClusterService/Create",
-			"/api.v1.ClusterService/Update",
-			"/api.v1.ClusterService/Delete",
-		]},
-	},
-	private1,
-)
-
-jwt_with_wrong_projects := io.jwt.encode_sign(
-	{
-		"typ": "JWT",
-		"alg": "ES512",
-	},
-	{
-		"iss": "api-server",
-		"sub": "1234567890",
-		"name": "John Doe",
-		"iat": time.now_ns() / 1000000000,
-		"nbf": (time.now_ns() / 1000000000) - 100,
-		"permissions": {
-			"project-d": [
-				"/api.v1.ClusterService/Get",
-				"/api.v1.ClusterService/List",
-				"/api.v1.ClusterService/Create",
-				"/api.v1.ClusterService/Update",
-				"/api.v1.ClusterService/Delete",
-			],
-			"project-e": [
-				"/api.v1.ClusterService/Get",
-				"/api.v1.ClusterService/List",
-				"/api.v1.ClusterService/Create",
-				"/api.v1.ClusterService/Update",
-				"/api.v1.ClusterService/Delete",
-			],
-		},
-	},
-	private1,
-)
-
-jwt_with_wrong_permission := io.jwt.encode_sign(
-	{
-		"typ": "JWT",
-		"alg": "ES512",
-	},
-	{
-		"iss": "api-server",
-		"sub": "1234567890",
-		"name": "John Doe",
-		"iat": time.now_ns() / 1000000000,
-		"nbf": (time.now_ns() / 1000000000) - 100,
-		"permissions": {
-			"project-d": ["/api.v1.ClusterService/Get"],
-			"project-e": ["/api.v1.ClusterService/Get"],
-		},
-	},
-	private1,
-)
-
-jwt_with_subject_owner_role := io.jwt.encode_sign(
-	{
-		"typ": "JWT",
-		"alg": "ES512",
-	},
-	{
-		"iss": "api-server",
 		"sub": "johndoe@github",
 		"name": "John Doe",
 		"iat": time.now_ns() / 1000000000,
 		"nbf": (time.now_ns() / 1000000000) - 100,
 		"exp": (time.now_ns() / 1000000000) + 100,
-		"roles": {"johndoe@github": "owner"},
-	},
-	private1,
-)
-
-jwt_with_non_subject_owner_role := io.jwt.encode_sign(
-	{
-		"typ": "JWT",
-		"alg": "ES512",
-	},
-	{
-		"iss": "api-server",
-		"sub": "johndoe@github",
-		"name": "John Doe",
-		"iat": time.now_ns() / 1000000000,
-		"nbf": (time.now_ns() / 1000000000) - 100,
-		"exp": (time.now_ns() / 1000000000) + 100,
-		"roles": {"johndifferent@github": "owner"},
-	},
-	private1,
-)
-
-jwt_with_subject_non_owner_role := io.jwt.encode_sign(
-	{
-		"typ": "JWT",
-		"alg": "ES512",
-	},
-	{
-		"iss": "api-server",
-		"sub": "johndoe@github",
-		"name": "John Doe",
-		"iat": time.now_ns() / 1000000000,
-		"nbf": (time.now_ns() / 1000000000) - 100,
-		"exp": (time.now_ns() / 1000000000) + 100,
-		"roles": {"johndoe@github": "editor"},
-	},
-	private1,
-)
-
-jwt_with_subject_with_self_token_list_method := io.jwt.encode_sign(
-	{
-		"typ": "JWT",
-		"alg": "ES512",
-	},
-	{
-		"iss": "api-server",
-		"sub": "johndoe@github",
-		"name": "John Doe",
-		"iat": time.now_ns() / 1000000000,
-		"nbf": (time.now_ns() / 1000000000) - 100,
-		"exp": (time.now_ns() / 1000000000) + 100,
-		"permissions": {"johndoe@github": ["/api.v1.TokenService/List"]},
 	},
 	private1,
 )

@@ -2,18 +2,28 @@ package api.v1.metalstack.io.authz
 
 import rego.v1
 
-roles := {"tenant": {}, "project": {}}
-
 methods := ["/api.v1.ClusterService/Get"]
+
+admin_roles := {"ADMIN_ROLE_EDITOR": [
+	"/admin.v1.ClusterService/Get",
+	"/admin.v1.ClusterService/List",
+]}
 
 test_get_cluster_allowed if {
 	decision.allow with input as {
 		"method": "/api.v1.ClusterService/Get",
-		"token": jwt,
+		"token": valid_jwt,
 		"request": {"project": "project-a"},
 		"jwks": json.marshal(public),
+		"permissions": {"project-a": [
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/List",
+			"/api.v1.ClusterService/Create",
+			"/api.v1.ClusterService/Update",
+			"/api.v1.ClusterService/Delete",
+		]},
 	}
-		with data.roles as roles
 		with data.methods as methods
 		with data.allowed_issuers as allowed_issuers
 }
@@ -22,10 +32,13 @@ test_list_clusters_not_allowed_with_wrong_permissions if {
 	not decision.allow with input as {
 		"method": "/api.v1.ClusterService/List",
 		"request": null,
-		"token": jwt_with_wrong_permission,
+		"token": valid_jwt,
 		"jwks": json.marshal(public),
+		"permissions": {
+			"project-d": ["/api.v1.ClusterService/Get"],
+			"project-e": ["/api.v1.ClusterService/Get"],
+		},
 	}
-		with data.roles as roles
 		with data.methods as methods
 		with data.allowed_issuers as allowed_issuers
 }
@@ -36,8 +49,15 @@ test_list_clusters_not_allowed_with_wrong_jwt if {
 		"request": null,
 		"token": jwt_with_wrong_secret,
 		"jwks": json.marshal(public),
+		"permissions": {"project-a": [
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/List",
+			"/api.v1.ClusterService/Create",
+			"/api.v1.ClusterService/Update",
+			"/api.v1.ClusterService/Delete",
+		]},
 	}
-		with data.roles as roles
 		with data.methods as methods
 		with data.allowed_issuers as allowed_issuers
 }
@@ -48,20 +68,15 @@ test_list_clusters_not_allowed_with_wrong_iss if {
 		"request": null,
 		"token": jwt_with_wrong_issuer,
 		"jwks": json.marshal(public),
+		"permissions": {"project-a": [
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/List",
+			"/api.v1.ClusterService/Create",
+			"/api.v1.ClusterService/Update",
+			"/api.v1.ClusterService/Delete",
+		]},
 	}
-		with data.roles as roles
-		with data.methods as methods
-		with data.allowed_issuers as allowed_issuers
-}
-
-test_list_clusters_allowed_with_empty_cluster if {
-	decision.allow with input as {
-		"method": "/api.v1.ClusterService/List",
-		"request": {"project": "project-a"},
-		"token": jwt,
-		"jwks": json.marshal(public),
-	}
-		with data.roles as roles
 		with data.methods as methods
 		with data.allowed_issuers as allowed_issuers
 }
@@ -70,10 +85,17 @@ test_list_clusters_allowed if {
 	decision.allow with input as {
 		"method": "/api.v1.ClusterService/List",
 		"request": {"project": "project-a"},
-		"token": jwt,
+		"token": valid_jwt,
 		"jwks": json.marshal(public),
+		"permissions": {"project-a": [
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/List",
+			"/api.v1.ClusterService/Create",
+			"/api.v1.ClusterService/Update",
+			"/api.v1.ClusterService/Delete",
+		]},
 	}
-		with data.roles as roles
 		with data.methods as methods
 		with data.allowed_issuers as allowed_issuers
 }
@@ -82,22 +104,36 @@ test_create_clusters_allowed if {
 	decision.allow with input as {
 		"method": "/api.v1.ClusterService/Create",
 		"request": {"project": "project-a"},
-		"token": jwt,
+		"token": valid_jwt,
 		"jwks": json.marshal(public),
+		"permissions": {"project-a": [
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/List",
+			"/api.v1.ClusterService/Create",
+			"/api.v1.ClusterService/Update",
+			"/api.v1.ClusterService/Delete",
+		]},
 	}
-		with data.roles as roles
 		with data.methods as methods
 		with data.allowed_issuers as allowed_issuers
 }
 
-test_create_clusters_not_allowed if {
+test_create_clusters_not_allowed_for_other_project if {
 	not decision.allow with input as {
 		"method": "/api.v1.ClusterService/Create",
 		"request": {"project": "project-c"},
-		"token": jwt,
+		"token": valid_jwt,
 		"jwks": json.marshal(public),
+		"permissions": {"project-a": [
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/List",
+			"/api.v1.ClusterService/Create",
+			"/api.v1.ClusterService/Update",
+			"/api.v1.ClusterService/Delete",
+		]},
 	}
-		with data.roles as roles
 		with data.methods as methods
 		with data.allowed_issuers as allowed_issuers
 }
@@ -106,10 +142,17 @@ test_is_method_allowed if {
 	not is_method_allowed with input as {
 		"method": "/api.v1.ClusterService/Create",
 		"request": {"project": "project-c"},
-		"token": jwt,
+		"token": valid_jwt,
 		"jwks": json.marshal(public),
+		"permissions": {"project-a": [
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/List",
+			"/api.v1.ClusterService/Create",
+			"/api.v1.ClusterService/Update",
+			"/api.v1.ClusterService/Delete",
+		]},
 	}
-		with data.roles as roles
 		with data.methods as methods
 		with data.allowed_issuers as allowed_issuers
 }
@@ -118,27 +161,32 @@ test_decision_reason_method_not_allowed if {
 	d := decision with input as {
 		"method": "/api.v1.ClusterService/List",
 		"request": {"project": "project-c"},
-		"token": jwt,
+		"token": valid_jwt,
 		"jwks": json.marshal(public),
+		"permissions": {"project-a": [
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/Get",
+			"/api.v1.ClusterService/List",
+			"/api.v1.ClusterService/Create",
+			"/api.v1.ClusterService/Update",
+			"/api.v1.ClusterService/Delete",
+		]},
 	}
-		with data.roles as roles
 		with data.methods as methods
 		with data.allowed_issuers as allowed_issuers
-
 	not d.allow
 	d.reason == "method denied or unknown:/api.v1.ClusterService/List"
 }
 
 test_decision_admin_is_allowed if {
 	d := decision with input as {
-		"method": "/api.v1.ClusterService/List",
+		"method": "/admin.v1.ClusterService/List",
 		"request": {"project": "project-c"},
-		"token": admin_jwt,
+		"token": valid_jwt,
 		"jwks": json.marshal(public),
+		"admin_role": "ADMIN_ROLE_EDITOR",
 	}
-		with data.roles as roles
-		with data.methods as methods
+		with data.roles.admin as admin_roles
 		with data.allowed_issuers as allowed_issuers
-
 	d.allow
 }

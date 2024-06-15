@@ -47,14 +47,12 @@ func (i *tenantInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc 
 			email   = ""
 			name    = ""
 			tenant  = ""
-			issuer  = ""
 			subject = ""
 		)
 
-		claims, ok := token.TokenClaimsFromContext(ctx)
+		t, ok := token.TokenFromContext(ctx)
 		if ok {
-			issuer = claims.Issuer
-			subject = claims.Subject
+			subject = t.UserId
 		}
 
 		defer func() {
@@ -64,7 +62,7 @@ func (i *tenantInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc 
 				Name:    name,
 				Tenant:  tenant,
 				Groups:  []security.ResourceAccess{},
-				Issuer:  issuer,
+				Issuer:  "",
 				Subject: subject,
 			})
 		}()

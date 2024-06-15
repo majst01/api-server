@@ -13,7 +13,7 @@ COPY --from=opa /opa /usr/local/bin/opa
 COPY . .
 RUN make
 
-FROM alpine:3.19
+FROM alpine:3.20
 RUN apk add ca-certificates
 COPY --from=builder /work/bin/server /
 ENTRYPOINT [ "/server" ]

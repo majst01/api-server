@@ -26,6 +26,7 @@ import (
 
 	"github.com/metal-stack/api-server/pkg/auth"
 	"github.com/metal-stack/api-server/pkg/certs"
+	"github.com/metal-stack/api-server/pkg/invite"
 	ratelimiter "github.com/metal-stack/api-server/pkg/rate-limiter"
 	"github.com/metal-stack/api-server/pkg/service/health"
 	"github.com/metal-stack/api-server/pkg/service/ip"
@@ -87,7 +88,7 @@ func (s *server) Run() error {
 	certStore := certs.NewRedisStore(&certs.Config{
 		RedisClient: tokenRedisClient,
 	})
-	inviteStore := project.NewRedisStore(inviteRedisClient)
+	inviteStore := invite.NewProjectRedisStore(inviteRedisClient)
 
 	authcfg := auth.Config{
 		Log:            s.log,
@@ -118,9 +119,8 @@ func (s *server) Run() error {
 		MaxRequestsPerMinuteToken:           s.c.MaxRequestsPerMinuteToken,
 		MaxRequestsPerMinuteUnauthenticated: s.c.MaxRequestsPerMinuteUnauthenticated,
 	})
-	tokenWhitelistInterceptor := tokencommon.NewTokenWhitelistInterceptor(s.log, tokenRedisClient)
 
-	allInterceptors := []connect.Interceptor{metricsInterceptor, authz, tokenWhitelistInterceptor, ratelimitInterceptor, validationInterceptor, tenantInterceptor}
+	allInterceptors := []connect.Interceptor{metricsInterceptor, authz, ratelimitInterceptor, validationInterceptor, tenantInterceptor}
 	if s.c.Auditing != nil {
 		servicePermissions := permissions.GetServicePermissions()
 		shouldAudit := func(fullMethod string) bool {
@@ -185,7 +185,7 @@ func (s *server) Run() error {
 	mux.Handle(grpcreflect.NewHandlerV1(reflector))
 	mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
 
-	// Add all authentification handlers in one go
+	// Add all authentication handlers in one go
 
 	apiServer := &http.Server{
 		Addr:              s.c.HttpServerEndpoint,

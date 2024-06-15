@@ -7,8 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/metal-stack/api-server/pkg/token"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/metal-stack/api-server/pkg/service/method"
+	apiv1 "github.com/metal-stack/api/go/api/v1"
 )
 
 const (
@@ -33,17 +35,17 @@ func New(client *redis.Client) *ratelimiter {
 	}
 }
 
-// CheckLimitTokenAccess enforces maxRequestsPerMinute for the given token claims
-func (r *ratelimiter) CheckLimitTokenAccess(ctx context.Context, claims *token.Claims, maxRequestsPerMinute int) (bool, error) {
-	if token.IsAdminToken(claims) {
+// CheckLimitTokenAccess enforces maxRequestsPerMinute for the given token
+func (r *ratelimiter) CheckLimitTokenAccess(ctx context.Context, t *apiv1.Token, maxRequestsPerMinute int) (bool, error) {
+	if method.IsAdminToken(t) {
 		// admin tokens should not have a rate-limit (i.e. the accounting uses the api excessively to report usages)
 		return true, nil
 	}
 
-	return r.limit(ctx, keyFromClaims(claims), maxRequestsPerMinute)
+	return r.limit(ctx, keyFromToken(t), maxRequestsPerMinute)
 }
 
-// CheckLimitTokenAccess enforces maxRequestsPerMinute for the given token claims
+// CheckLimitTokenAccess enforces maxRequestsPerMinute for the given token
 func (r *ratelimiter) CheckLimitUnauthenticatedAccess(ctx context.Context, ip string, maxRequestsPerMinute int) (bool, error) {
 	return r.limit(ctx, keyFromIP(ip), maxRequestsPerMinute)
 }
@@ -79,8 +81,8 @@ func (r *ratelimiter) limit(ctx context.Context, k string, maxRequestsPerMinute 
 	return true, nil
 }
 
-func keyFromClaims(t *token.Claims) string {
-	return prefix + t.Subject + separator + t.ID + separator + strconv.Itoa(time.Now().Minute())
+func keyFromToken(t *apiv1.Token) string {
+	return prefix + t.UserId + separator + t.Uuid + separator + strconv.Itoa(time.Now().Minute())
 }
 
 func keyFromIP(ip string) string {

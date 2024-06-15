@@ -4,11 +4,6 @@ import rego.v1
 
 default decision := {"allow": false}
 
-is_method_allowed if {
-	print("input method", input.method, "allowed methods", data.methods)
-	data.methods[input.method] == true
-}
-
 decision := {"allow": false, "reason": reason} if {
 	# preconditions to avoid multiple rule matches
 	is_token_valid
@@ -60,18 +55,23 @@ decision := {"allow": true} if {
 	is_admin
 }
 
+is_method_allowed if {
+	print("input method", input.method, "allowed methods", data.methods)
+	data.methods[input.method] == true
+}
+
 # Rules per Service
 service_allowed if {
-	input.method in token.payload.permissions[input.request.project]
+	input.method in input.permissions[input.request.project]
 }
 
 service_allowed if {
 	# role of given project must provide methods where the actual method is contained
-	input.method in data.roles.project[token.payload.roles[input.request.project]]
+	input.method in data.roles.project[input.project_roles[input.request.project]]
 }
 
 service_allowed if {
-	input.method in data.roles.tenant[token.payload.roles[input.request.login]]
+	input.method in data.roles.tenant[input.tenant_roles[input.request.login]]
 }
 
 # Requests to methods with visibility self
@@ -80,15 +80,17 @@ service_allowed if {
 service_allowed if {
 	is_self_service
 
-	not token.payload.permissions # if no permissions given, we only respect roles
-	token.payload.roles[token.payload.sub] == "owner" # only owner role may visit self
+	not input.permissions # if no permissions given (that means the key does not exist at all!), we only respect roles
+	input.tenant_roles[token.payload.sub] == "TENANT_ROLE_OWNER" # only owner role may visit self
 }
 
 service_allowed if {
 	is_self_service
 
-	not token.payload.roles # if no roles given, we only respect permissions
-	token.payload.permissions
+	# if no tenant or project roles given (that means the key does not exist at all!), we only respect permissions
+	not input.project_roles
+	not input.tenant_roles
+	input.permissions # this key exists!
 }
 
 is_public_service if {
@@ -104,8 +106,33 @@ is_self_service if {
 }
 
 is_admin if {
-	# FIXME much too broad, admin_roles must be considered
-	token.payload.roles["*"] == "admin"
+	input.admin_role
+	input.method in data.roles.admin[input.admin_role]
+}
+
+is_admin if {
+	input.admin_role
+	is_self_service
+}
+
+is_admin if {
+	input.admin_role == "ADMIN_ROLE_EDITOR"
+	input.method in data.roles.project.PROJECT_ROLE_OWNER
+}
+
+is_admin if {
+	input.admin_role == "ADMIN_ROLE_EDITOR"
+	input.method in data.roles.tenant.TENANT_ROLE_OWNER
+}
+
+is_admin if {
+	input.admin_role == "ADMIN_ROLE_VIEWER"
+	input.method in data.roles.project.PROJECT_ROLE_VIEWER
+}
+
+is_admin if {
+	input.admin_role == "ADMIN_ROLE_VIEWER"
+	input.method in data.roles.tenant.TENANT_ROLE_VIEWER
 }
 
 # Token validation

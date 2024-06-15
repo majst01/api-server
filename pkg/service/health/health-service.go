@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	v1 "github.com/metal-stack/api/go/api/v1"
+	"github.com/metal-stack/api/go/api/v1"
 	"github.com/metal-stack/api/go/api/v1/apiv1connect"
+	metalgo "github.com/metal-stack/metal-go"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -18,12 +19,13 @@ const (
 )
 
 type healthchecker interface {
-	Health(context.Context) *v1.HealthStatus
+	Health(context.Context) *apiv1.HealthStatus
 }
 
 type Config struct {
 	Log                 *slog.Logger
 	Ctx                 context.Context
+	MetalClient         metalgo.Client
 	HealthcheckInterval time.Duration
 }
 
@@ -31,11 +33,15 @@ type healthServiceServer struct {
 	log *slog.Logger
 
 	checkers []healthchecker
-	current  *v1.Health
+	current  *apiv1.Health
 }
 
 func New(c Config) (apiv1connect.HealthServiceHandler, error) {
 	var checkers []healthchecker
+	if c.MetalClient != nil {
+		checkers = append(checkers, &machineHealthChecker{m: c.MetalClient})
+	}
+
 	h := &healthServiceServer{
 		log: c.Log.WithGroup("healthService"),
 		// initializing status with healthy at the start
@@ -49,8 +55,8 @@ func New(c Config) (apiv1connect.HealthServiceHandler, error) {
 	return h, nil
 }
 
-func (h *healthServiceServer) Get(ctx context.Context, rq *connect.Request[v1.HealthServiceGetRequest]) (*connect.Response[v1.HealthServiceGetResponse], error) {
-	return connect.NewResponse(&v1.HealthServiceGetResponse{
+func (h *healthServiceServer) Get(ctx context.Context, rq *connect.Request[apiv1.HealthServiceGetRequest]) (*connect.Response[apiv1.HealthServiceGetResponse], error) {
+	return connect.NewResponse(&apiv1.HealthServiceGetResponse{
 		Health: h.current,
 	}), nil
 }
@@ -91,10 +97,10 @@ func (h *healthServiceServer) fetchStatuses(ctx context.Context, interval time.D
 
 func (h *healthServiceServer) updateStatuses(outerCtx context.Context) error {
 	var (
-		statuses        = &v1.Health{}
+		statuses        = &apiv1.Health{}
 		ctx, cancel     = context.WithTimeout(outerCtx, CheckerTimeout)
 		group, groupCtx = errgroup.WithContext(ctx)
-		resultChan      = make(chan *v1.HealthStatus)
+		resultChan      = make(chan *apiv1.HealthStatus)
 		once            sync.Once
 	)
 
@@ -143,16 +149,16 @@ func (h *healthServiceServer) updateStatuses(outerCtx context.Context) error {
 	return nil
 }
 
-func newHealthyServiceMap() *v1.Health {
-	h := &v1.Health{}
-	for i := range v1.Service_name {
+func newHealthyServiceMap() *apiv1.Health {
+	h := &apiv1.Health{}
+	for i := range apiv1.Service_name {
 		if i == 0 {
 			// skipping unspecified
 			continue
 		}
-		h.Services = append(h.Services, &v1.HealthStatus{
-			Name:    v1.Service(i),
-			Status:  v1.ServiceStatus_SERVICE_STATUS_HEALTHY,
+		h.Services = append(h.Services, &apiv1.HealthStatus{
+			Name:    apiv1.Service(i),
+			Status:  apiv1.ServiceStatus_SERVICE_STATUS_HEALTHY,
 			Message: "",
 		})
 	}

@@ -39,12 +39,12 @@ func NewInterceptor(c *Config) *ratelimitInterceptor {
 func (i *ratelimitInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 	return connect.UnaryFunc(func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 		var (
-			err        error
-			claims, ok = token.TokenClaimsFromContext(ctx)
+			err   error
+			t, ok = token.TokenFromContext(ctx)
 		)
 
-		if ok && claims != nil {
-			_, err = i.ratelimiter.CheckLimitTokenAccess(ctx, claims, i.maxRequestsPerMinuteToken)
+		if ok && t != nil {
+			_, err = i.ratelimiter.CheckLimitTokenAccess(ctx, t, i.maxRequestsPerMinuteToken)
 		} else {
 			clientIP, ok := extractClientIP(req.Header())
 			if !ok {

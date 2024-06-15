@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	v1 "github.com/metal-stack/api/go/api/v1"
+	apiv1 "github.com/metal-stack/api/go/api/v1"
 	"github.com/metal-stack/v"
 )
 
@@ -15,21 +15,21 @@ func Test_versionServiceServer_Get(t *testing.T) {
 	tests := []struct {
 		name     string
 		ctx      context.Context
-		req      *v1.VersionServiceGetRequest
+		req      *apiv1.VersionServiceGetRequest
 		log      *slog.Logger
 		revision string
 		version  string
-		want     *v1.VersionServiceGetResponse
+		want     *apiv1.VersionServiceGetResponse
 		wantErr  bool
 	}{
 		{
 			name:     "simple",
 			ctx:      context.Background(),
-			req:      &v1.VersionServiceGetRequest{},
+			req:      &apiv1.VersionServiceGetRequest{},
 			revision: "abc",
 			version:  "v0.0.1",
 			log:      slog.Default(),
-			want:     &v1.VersionServiceGetResponse{Version: &v1.Version{Version: "v0.0.1", Revision: "abc"}},
+			want:     &apiv1.VersionServiceGetResponse{Version: &apiv1.Version{Version: "v0.0.1", Revision: "abc"}},
 			wantErr:  false,
 		},
 	}

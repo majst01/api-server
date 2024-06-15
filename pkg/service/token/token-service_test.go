@@ -9,11 +9,11 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/alicebob/miniredis/v2"
-	"github.com/golang-jwt/jwt/v4"
 	"github.com/metal-stack/api-server/pkg/certs"
 	"github.com/metal-stack/api-server/pkg/token"
-	v1 "github.com/metal-stack/api/go/api/v1"
+	apiv1 "github.com/metal-stack/api/go/api/v1"
 	"github.com/metal-stack/api/go/permissions"
+	"github.com/metal-stack/metal-lib/pkg/pointer"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,20 +38,22 @@ func Test_tokenService_CreateConsoleTokenWithoutPermissionCheck(t *testing.T) {
 	})
 
 	var (
-		samplePermissions = []*v1.MethodPermission{
+		samplePermissions = []*apiv1.MethodPermission{
 			{Subject: "project-a", Methods: []string{"/api.v1.ClusterService/List"}},
-		}
-		sampleRoles = []*v1.TokenRole{
-			{Subject: "default-project@test", Role: v1.OWNER},
 		}
 	)
 
-	got, err := service.CreateConsoleTokenWithoutPermissionCheck(ctx, "test", &connect.Request[v1.TokenServiceCreateRequest]{
-		Msg: &v1.TokenServiceCreateRequest{
+	got, err := service.CreateConsoleTokenWithoutPermissionCheck(ctx, "test", &connect.Request[apiv1.TokenServiceCreateRequest]{
+		Msg: &apiv1.TokenServiceCreateRequest{
 			Description: "test",
 			Permissions: samplePermissions,
-			Roles:       sampleRoles,
-			Expires:     durationpb.New(1 * time.Minute),
+			ProjectRoles: map[string]apiv1.ProjectRole{
+				"b1584890-1300-47ad-bdb1-10c32e43ed31": apiv1.ProjectRole_PROJECT_ROLE_OWNER,
+			},
+			TenantRoles: map[string]apiv1.TenantRole{
+				"b1584890-1300-47ad-bdb1-10c32e43ed31": apiv1.TenantRole_TENANT_ROLE_OWNER,
+			},
+			Expires: durationpb.New(1 * time.Minute),
 		},
 	})
 	require.NoError(t, err)
@@ -69,8 +71,6 @@ func Test_tokenService_CreateConsoleTokenWithoutPermissionCheck(t *testing.T) {
 
 	assert.NotEmpty(t, got.Msg.GetToken().GetUuid())
 	assert.Equal(t, "test", got.Msg.GetToken().GetUserId())
-	assert.Equal(t, samplePermissions, got.Msg.GetToken().GetPermissions())
-	assert.Equal(t, sampleRoles, got.Msg.GetToken().GetRoles())
 
 	// verifying keydb entry
 	err = tokenStore.Set(ctx, got.Msg.GetToken())
@@ -78,7 +78,7 @@ func Test_tokenService_CreateConsoleTokenWithoutPermissionCheck(t *testing.T) {
 
 	// listing tokens
 
-	tokenList, err := service.List(token.ContextWithTokenClaims(ctx, claims), &connect.Request[v1.TokenServiceListRequest]{})
+	tokenList, err := service.List(token.ContextWithToken(ctx, got.Msg.Token), &connect.Request[apiv1.TokenServiceListRequest]{})
 	require.NoError(t, err)
 
 	require.NotNil(t, tokenList)
@@ -86,21 +86,19 @@ func Test_tokenService_CreateConsoleTokenWithoutPermissionCheck(t *testing.T) {
 
 	require.Len(t, tokenList.Msg.Tokens, 1)
 
-	// Check allowed
-	allowed, err := tokenStore.Allowed(ctx, got.Msg.GetToken())
-	require.NoError(t, err)
-	require.True(t, allowed)
-
-	// Check allowed after revocation
-	err = tokenStore.Revoke(ctx, got.Msg.GetToken())
+	// Check still present
+	_, err = tokenStore.Get(ctx, got.Msg.GetToken().GetUserId(), got.Msg.GetToken().GetUuid())
 	require.NoError(t, err)
 
-	allowed, err = tokenStore.Allowed(ctx, got.Msg.GetToken())
+	// Check unpresent after revocation
+	err = tokenStore.Revoke(ctx, got.Msg.GetToken().GetUserId(), got.Msg.GetToken().GetUuid())
 	require.NoError(t, err)
-	require.False(t, allowed)
+
+	_, err = tokenStore.Get(ctx, got.Msg.GetToken().GetUserId(), got.Msg.GetToken().GetUuid())
+	require.Error(t, err)
 
 	// List must now be empty
-	tokenList, err = service.List(token.ContextWithTokenClaims(ctx, claims), &connect.Request[v1.TokenServiceListRequest]{})
+	tokenList, err = service.List(token.ContextWithToken(ctx, got.Msg.Token), &connect.Request[apiv1.TokenServiceListRequest]{})
 	require.NoError(t, err)
 
 	require.NotNil(t, tokenList)
@@ -114,21 +112,23 @@ func Test_validateTokenCreate(t *testing.T) {
 	oneHundredDays := durationpb.New(100 * 24 * time.Hour)
 	tests := []struct {
 		name           string
-		claims         *token.Claims
-		req            *v1.TokenServiceCreateRequest
+		token          *apiv1.Token
+		req            *apiv1.TokenServiceCreateRequest
 		adminSubjects  []string
 		wantErr        bool
 		wantErrMessage string
 	}{
 		{
 			name: "simple token with empty permissions and roles",
-			claims: &token.Claims{
-				Permissions: token.MethodPermissions{
-					"": []string{""},
+			token: &apiv1.Token{
+				Permissions: []*apiv1.MethodPermission{
+					{
+						Subject: "",
+						Methods: []string{""},
+					},
 				},
-				Roles: token.TokenRoles{},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i don't need any permissions",
 				Expires:     inOneHour,
 			},
@@ -138,14 +138,14 @@ func Test_validateTokenCreate(t *testing.T) {
 		// Inherited Permissions
 		{
 			name: "simple token with no permissions but project role",
-			claims: &token.Claims{
-				Roles: map[string]string{
-					"ae8d2493-41ec-4efd-bbb4-81085b20b6fe": "owner",
+			token: &apiv1.Token{
+				ProjectRoles: map[string]apiv1.ProjectRole{
+					"ae8d2493-41ec-4efd-bbb4-81085b20b6fe": apiv1.ProjectRole_PROJECT_ROLE_OWNER,
 				},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i want to get a cluster for this project",
-				Permissions: []*v1.MethodPermission{
+				Permissions: []*apiv1.MethodPermission{
 					{
 						Subject: "ae8d2493-41ec-4efd-bbb4-81085b20b6fe",
 						Methods: []string{
@@ -159,15 +159,15 @@ func Test_validateTokenCreate(t *testing.T) {
 			wantErr:       false,
 		},
 		{
-			name: "simple token with no permissions but tenant role",
-			claims: &token.Claims{
-				Roles: map[string]string{
-					"john@github": "owner",
+			name: "simple token with no permissions but tenant role (old naming scheme)",
+			token: &apiv1.Token{
+				TenantRoles: map[string]apiv1.TenantRole{
+					"john@github": apiv1.TenantRole_TENANT_ROLE_OWNER,
 				},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i want to update payments",
-				Permissions: []*v1.MethodPermission{
+				Permissions: []*apiv1.MethodPermission{
 					{
 						Subject: "john@github",
 						Methods: []string{
@@ -183,18 +183,17 @@ func Test_validateTokenCreate(t *testing.T) {
 		// Permissions from Token
 		{
 			name: "simple token with one project and permission",
-			claims: &token.Claims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					Subject: "john@github",
+			token: &apiv1.Token{
+				Permissions: []*apiv1.MethodPermission{
+					{
+						Subject: "abc",
+						Methods: []string{"/api.v1.ClusterService/Get"},
+					},
 				},
-				Permissions: token.MethodPermissions{
-					"abc": []string{"/api.v1.ClusterService/Get"},
-				},
-				Roles: token.TokenRoles{},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i want to get a cluster",
-				Permissions: []*v1.MethodPermission{
+				Permissions: []*apiv1.MethodPermission{
 					{
 						Subject: "abc",
 						Methods: []string{"/api.v1.ClusterService/Get"},
@@ -207,18 +206,17 @@ func Test_validateTokenCreate(t *testing.T) {
 		},
 		{
 			name: "simple token with unknown method",
-			claims: &token.Claims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					Subject: "john@github",
+			token: &apiv1.Token{
+				Permissions: []*apiv1.MethodPermission{
+					{
+						Subject: "abc",
+						Methods: []string{"/api.v1.ClusterService/Get"},
+					},
 				},
-				Permissions: token.MethodPermissions{
-					"abc": []string{"/api.v1.ClusterService/Get"},
-				},
-				Roles: token.TokenRoles{},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i want to get a cluster",
-				Permissions: []*v1.MethodPermission{
+				Permissions: []*apiv1.MethodPermission{
 					{
 						Subject: "abc",
 						Methods: []string{"/api.v1.UnknownService/Get"},
@@ -232,18 +230,17 @@ func Test_validateTokenCreate(t *testing.T) {
 		},
 		{
 			name: "simple token with one project and permission, wrong project given",
-			claims: &token.Claims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					Subject: "john@github",
+			token: &apiv1.Token{
+				Permissions: []*apiv1.MethodPermission{
+					{
+						Subject: "abc",
+						Methods: []string{"/api.v1.ClusterService/Get"},
+					},
 				},
-				Permissions: token.MethodPermissions{
-					"abc": []string{"/api.v1.ClusterService/Get"},
-				},
-				Roles: token.TokenRoles{},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i want to get a cluster",
-				Permissions: []*v1.MethodPermission{
+				Permissions: []*apiv1.MethodPermission{
 					{
 						Subject: "cde",
 						Methods: []string{"/api.v1.ClusterService/Get"},
@@ -257,18 +254,17 @@ func Test_validateTokenCreate(t *testing.T) {
 		},
 		{
 			name: "simple token with one project and permission, wrong message given",
-			claims: &token.Claims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					Subject: "john@github",
+			token: &apiv1.Token{
+				Permissions: []*apiv1.MethodPermission{
+					{
+						Subject: "abc",
+						Methods: []string{"/api.v1.ClusterService/Get"},
+					},
 				},
-				Permissions: token.MethodPermissions{
-					"abc": []string{"/api.v1.ClusterService/Get"},
-				},
-				Roles: token.TokenRoles{},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i want to list clusters",
-				Permissions: []*v1.MethodPermission{
+				Permissions: []*apiv1.MethodPermission{
 					{
 						Subject: "abc",
 						Methods: []string{"/api.v1.ClusterService/List"},
@@ -282,22 +278,21 @@ func Test_validateTokenCreate(t *testing.T) {
 		},
 		{
 			name: "simple token with one project and permission, wrong messages given",
-			claims: &token.Claims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					Subject: "john@github",
-				},
-				Permissions: token.MethodPermissions{
-					"abc": []string{
-						"/api.v1.ClusterService/Create",
-						"/api.v1.ClusterService/Get",
-						"/api.v1.ClusterService/Delete",
+			token: &apiv1.Token{
+				Permissions: []*apiv1.MethodPermission{
+					{
+						Subject: "abc",
+						Methods: []string{
+							"/api.v1.ClusterService/Create",
+							"/api.v1.ClusterService/Get",
+							"/api.v1.ClusterService/Delete",
+						},
 					},
 				},
-				Roles: token.TokenRoles{},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i want to get and list clusters",
-				Permissions: []*v1.MethodPermission{
+				Permissions: []*apiv1.MethodPermission{
 					{
 						Subject: "abc",
 						Methods: []string{
@@ -314,13 +309,15 @@ func Test_validateTokenCreate(t *testing.T) {
 		},
 		{
 			name: "expiration too long",
-			claims: &token.Claims{
-				Permissions: token.MethodPermissions{
-					"": []string{""},
+			token: &apiv1.Token{
+				Permissions: []*apiv1.MethodPermission{
+					{
+						Subject: "",
+						Methods: []string{""},
+					},
 				},
-				Roles: token.TokenRoles{},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i don't need any permissions",
 				Expires:     oneHundredDays,
 			},
@@ -331,214 +328,148 @@ func Test_validateTokenCreate(t *testing.T) {
 		// Roles from Token
 		{
 			name: "token has no role",
-			claims: &token.Claims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					Subject: "john@github",
-				},
-				Permissions: token.MethodPermissions{
-					"abc": []string{"/api.v1.ClusterService/Get"},
-				},
-				Roles: token.TokenRoles{},
-			},
-			req: &v1.TokenServiceCreateRequest{
-				Description: "i want to get a cluster",
-				Permissions: []*v1.MethodPermission{
+			token: &apiv1.Token{
+				Permissions: []*apiv1.MethodPermission{
 					{
 						Subject: "abc",
 						Methods: []string{"/api.v1.ClusterService/Get"},
 					},
 				},
-				Roles: []*v1.TokenRole{
+			},
+			req: &apiv1.TokenServiceCreateRequest{
+				Description: "i want to get a cluster",
+				Permissions: []*apiv1.MethodPermission{
 					{
-						Subject: "john@github",
-						Role:    "owner",
+						Subject: "abc",
+						Methods: []string{"/api.v1.ClusterService/Get"},
 					},
+				},
+				TenantRoles: map[string]apiv1.TenantRole{
+					"john@github": apiv1.TenantRole_TENANT_ROLE_OWNER,
 				},
 				Expires: inOneHour,
 			},
 			adminSubjects:  []string{},
 			wantErr:        true,
-			wantErrMessage: "requested subject:\"john@github\" is not allowed",
+			wantErrMessage: "requested tenant:\"john@github\" is not allowed",
 		},
 		{
 			name: "token has to low role",
-			claims: &token.Claims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					Subject: "john@github",
-				},
-				Permissions: token.MethodPermissions{
-					"abc": []string{"/api.v1.ClusterService/Get"},
-				},
-				Roles: token.TokenRoles{
-					"company-a@github": "viewer",
-				},
-			},
-			req: &v1.TokenServiceCreateRequest{
-				Description: "i want to get a cluster",
-				Permissions: []*v1.MethodPermission{
+			token: &apiv1.Token{
+				Permissions: []*apiv1.MethodPermission{
 					{
 						Subject: "abc",
 						Methods: []string{"/api.v1.ClusterService/Get"},
 					},
 				},
-				Roles: []*v1.TokenRole{
+				TenantRoles: map[string]apiv1.TenantRole{
+					"company-a@github": apiv1.TenantRole_TENANT_ROLE_VIEWER,
+				},
+			},
+			req: &apiv1.TokenServiceCreateRequest{
+				Description: "i want to get a cluster",
+				Permissions: []*apiv1.MethodPermission{
 					{
-						Subject: "company-a@github",
-						Role:    "editor",
+						Subject: "abc",
+						Methods: []string{"/api.v1.ClusterService/Get"},
 					},
+				},
+				TenantRoles: map[string]apiv1.TenantRole{
+					"company-a@github": apiv1.TenantRole_TENANT_ROLE_EDITOR,
 				},
 				Expires: inOneHour,
 			},
 			adminSubjects:  []string{},
 			wantErr:        true,
-			wantErrMessage: "requested role:\"editor\" is higher than allowed role:\"viewer\"",
+			wantErrMessage: "requested role:\"TENANT_ROLE_EDITOR\" is higher than allowed role:\"TENANT_ROLE_VIEWER\"",
 		},
 		{
-			name: "token request has unknown role",
-			claims: &token.Claims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					Subject: "john@github",
-				},
-				Permissions: token.MethodPermissions{
-					"abc": []string{"/api.v1.ClusterService/Get"},
-				},
-				Roles: token.TokenRoles{
-					"company-a@github": "viewer",
-				},
-			},
-			req: &v1.TokenServiceCreateRequest{
-				Description: "i want to get a cluster",
-				Permissions: []*v1.MethodPermission{
+			name: "token request has unspecified role",
+			token: &apiv1.Token{
+				Permissions: []*apiv1.MethodPermission{
 					{
 						Subject: "abc",
 						Methods: []string{"/api.v1.ClusterService/Get"},
 					},
 				},
-				Roles: []*v1.TokenRole{
-					{
-						Subject: "company-a@github",
-						Role:    "nob",
-					},
-				},
-				Expires: inOneHour,
-			},
-			adminSubjects:  []string{},
-			wantErr:        true,
-			wantErrMessage: "requested role:\"nob\" is not known",
-		},
-		{
-			name: "token has unknown role",
-			claims: &token.Claims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					Subject: "john@github",
-				},
-				Permissions: token.MethodPermissions{
-					"abc": []string{"/api.v1.ClusterService/Get"},
-				},
-				Roles: token.TokenRoles{
-					"company-a@github": "nob",
+				TenantRoles: map[string]apiv1.TenantRole{
+					"company-a@github": apiv1.TenantRole_TENANT_ROLE_VIEWER,
 				},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i want to get a cluster",
-				Permissions: []*v1.MethodPermission{
+				Permissions: []*apiv1.MethodPermission{
 					{
 						Subject: "abc",
 						Methods: []string{"/api.v1.ClusterService/Get"},
 					},
 				},
-				Roles: []*v1.TokenRole{
-					{
-						Subject: "company-a@github",
-						Role:    "viewer",
-					},
+				TenantRoles: map[string]apiv1.TenantRole{
+					"company-a@github": apiv1.TenantRole_TENANT_ROLE_UNSPECIFIED,
 				},
 				Expires: inOneHour,
 			},
 			adminSubjects:  []string{},
 			wantErr:        true,
-			wantErrMessage: "claim role:\"nob\" is not known",
+			wantErrMessage: "requested tenant role:\"TENANT_ROLE_UNSPECIFIED\" is not allowed",
 		},
 		// AdminSubjects
 		{
-			name:          "token requested admin role but is not allowed",
+			name:          "requested admin role but is not allowed",
 			adminSubjects: []string{},
-			claims: &token.Claims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					Subject: "john@github",
-				},
-				Roles: token.TokenRoles{
-					"company-a@github": "editor",
+			token: &apiv1.Token{
+				TenantRoles: map[string]apiv1.TenantRole{
+					"company-a@github": apiv1.TenantRole_TENANT_ROLE_EDITOR,
 				},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i want to get admin access",
-				Roles: []*v1.TokenRole{
-					{
-						Subject: "*",
-						Role:    "admin",
-					},
-				},
-				Expires: inOneHour,
+				AdminRole:   pointer.Pointer(apiv1.AdminRole_ADMIN_ROLE_VIEWER),
+				Expires:     inOneHour,
 			},
 			wantErr:        true,
-			wantErrMessage: "requested subject:\"*\" is not allowed",
+			wantErrMessage: "requested admin role:\"ADMIN_ROLE_VIEWER\" is not allowed",
 		},
 		{
-			name: "token requested admin role but is member of admin orga",
+			name: "requested admin role but is only viewer of admin orga",
 			adminSubjects: []string{
 				"company-a@github",
 			},
-			claims: &token.Claims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					Subject: "john@github",
-				},
-				Roles: token.TokenRoles{
-					"company-a@github": "viewer",
+			token: &apiv1.Token{
+				TenantRoles: map[string]apiv1.TenantRole{
+					"company-a@github": apiv1.TenantRole_TENANT_ROLE_VIEWER,
 				},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i want to get admin access",
-				Roles: []*v1.TokenRole{
-					{
-						Subject: "*",
-						Role:    "admin",
-					},
-				},
-				Expires: inOneHour,
+				AdminRole:   pointer.Pointer(apiv1.AdminRole_ADMIN_ROLE_EDITOR),
+				Expires:     inOneHour,
 			},
 			wantErr:        true,
-			wantErrMessage: "requested subject:\"*\" is not allowed",
+			wantErrMessage: "requested admin role:\"ADMIN_ROLE_EDITOR\" is not allowed",
 		},
 		{
 			name: "token requested admin role but is editor in admin orga",
 			adminSubjects: []string{
 				"company-a@github",
 			},
-			claims: &token.Claims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					Subject: "john@github",
-				},
-				Roles: token.TokenRoles{
-					"company-a@github": "editor",
+			token: &apiv1.Token{
+				UserId: "company-a@github",
+				TenantRoles: map[string]apiv1.TenantRole{
+					"company-a@github": apiv1.TenantRole_TENANT_ROLE_EDITOR,
 				},
 			},
-			req: &v1.TokenServiceCreateRequest{
+			req: &apiv1.TokenServiceCreateRequest{
 				Description: "i want to get admin access",
-				Roles: []*v1.TokenRole{
-					{
-						Subject: "*",
-						Role:    "admin",
-					},
-				},
-				Expires: inOneHour,
+				AdminRole:   pointer.Pointer(apiv1.AdminRole_ADMIN_ROLE_EDITOR),
+				Expires:     inOneHour,
 			},
 			wantErr: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateTokenCreate(tt.claims, tt.req, servicePermissions, tt.adminSubjects)
+			err := validateTokenCreate(tt.token, tt.req, servicePermissions, tt.adminSubjects)
 			if err != nil && !tt.wantErr {
 				t.Errorf("validateTokenCreate() error = %v, wantErr %v", err, tt.wantErr)
 			}

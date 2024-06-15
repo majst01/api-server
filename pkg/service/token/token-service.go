@@ -8,19 +8,20 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/metal-stack/api-server/pkg/certs"
-	"github.com/metal-stack/api-server/pkg/token"
-	v1 "github.com/metal-stack/api/go/api/v1"
+	"github.com/metal-stack/api-server/pkg/service/method"
+	tokenutil "github.com/metal-stack/api-server/pkg/token"
+	apiv1 "github.com/metal-stack/api/go/api/v1"
 	"github.com/metal-stack/api/go/api/v1/apiv1connect"
 	"github.com/metal-stack/api/go/permissions"
+	"github.com/metal-stack/metal-lib/pkg/pointer"
 )
 
 type Config struct {
 	Log        *slog.Logger
-	TokenStore token.TokenStore
+	TokenStore tokenutil.TokenStore
 	CertStore  certs.CertStore
 
 	// AdminSubjects are the subjects for which the token service allows the creation of admin api tokens
-	// this is typically a Github Org of the provider
 	AdminSubjects []string
 
 	// Issuer to sign the JWT Token with
@@ -30,7 +31,7 @@ type Config struct {
 type tokenService struct {
 	issuer             string
 	adminSubjects      []string
-	tokens             token.TokenStore
+	tokens             tokenutil.TokenStore
 	certs              certs.CertStore
 	log                *slog.Logger
 	servicePermissions *permissions.ServicePermissions
@@ -38,8 +39,9 @@ type tokenService struct {
 
 type TokenService interface {
 	apiv1connect.TokenServiceHandler
-	CreateConsoleTokenWithoutPermissionCheck(ctx context.Context, subject string, rq *connect.Request[v1.TokenServiceCreateRequest]) (*connect.Response[v1.TokenServiceCreateResponse], error)
-	CreateApiTokenWithoutPermissionCheck(ctx context.Context, rq *connect.Request[v1.TokenServiceCreateRequest]) (*connect.Response[v1.TokenServiceCreateResponse], error)
+	// FIXME do we need these two Services ?
+	CreateConsoleTokenWithoutPermissionCheck(ctx context.Context, subject string, rq *connect.Request[apiv1.TokenServiceCreateRequest]) (*connect.Response[apiv1.TokenServiceCreateResponse], error)
+	CreateApiTokenWithoutPermissionCheck(ctx context.Context, rq *connect.Request[apiv1.TokenServiceCreateRequest]) (*connect.Response[apiv1.TokenServiceCreateResponse], error)
 }
 
 func New(c Config) TokenService {
@@ -57,11 +59,11 @@ func New(c Config) TokenService {
 
 // CreateConsoleTokenWithoutPermissionCheck is only called from the auth service during login through console
 // No validation against requested roles and permissions is required and implemented here
-func (t *tokenService) CreateConsoleTokenWithoutPermissionCheck(ctx context.Context, subject string, rq *connect.Request[v1.TokenServiceCreateRequest]) (*connect.Response[v1.TokenServiceCreateResponse], error) {
+func (t *tokenService) CreateConsoleTokenWithoutPermissionCheck(ctx context.Context, subject string, rq *connect.Request[apiv1.TokenServiceCreateRequest]) (*connect.Response[apiv1.TokenServiceCreateResponse], error) {
 	t.log.Debug("create", "token", rq)
 	req := rq.Msg
 
-	expires := token.DefaultExpiration
+	expires := tokenutil.DefaultExpiration
 	if req.Expires != nil {
 		expires = req.Expires.AsDuration()
 	}
@@ -71,12 +73,21 @@ func (t *tokenService) CreateConsoleTokenWithoutPermissionCheck(ctx context.Cont
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unable to fetch signing certificate: %w", err))
 	}
 
-	secret, token, err := token.NewJWT(v1.TokenType_TOKEN_TYPE_CONSOLE, subject, t.issuer, req.Roles, req.Permissions, expires, privateKey)
+	secret, token, err := tokenutil.NewJWT(apiv1.TokenType_TOKEN_TYPE_CONSOLE, subject, t.issuer, expires, privateKey)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unable to create console token: %w", err))
 	}
 
-	return connect.NewResponse(&v1.TokenServiceCreateResponse{
+	token.Permissions = req.Permissions
+	token.ProjectRoles = req.ProjectRoles
+	token.TenantRoles = req.TenantRoles
+
+	err = t.tokens.Set(ctx, token)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	return connect.NewResponse(&apiv1.TokenServiceCreateResponse{
 		Token:  token,
 		Secret: secret,
 	}), nil
@@ -84,11 +95,11 @@ func (t *tokenService) CreateConsoleTokenWithoutPermissionCheck(ctx context.Cont
 
 // CreateApiTokenWithoutPermissionCheck is only called from the api-server command line interface
 // No validation against requested roles and permissions is required and implemented here
-func (t *tokenService) CreateApiTokenWithoutPermissionCheck(ctx context.Context, rq *connect.Request[v1.TokenServiceCreateRequest]) (*connect.Response[v1.TokenServiceCreateResponse], error) {
+func (t *tokenService) CreateApiTokenWithoutPermissionCheck(ctx context.Context, rq *connect.Request[apiv1.TokenServiceCreateRequest]) (*connect.Response[apiv1.TokenServiceCreateResponse], error) {
 	t.log.Debug("create", "token", rq)
 	req := rq.Msg
 
-	expires := token.DefaultExpiration
+	expires := tokenutil.DefaultExpiration
 	if req.Expires != nil {
 		expires = req.Expires.AsDuration()
 	}
@@ -98,19 +109,23 @@ func (t *tokenService) CreateApiTokenWithoutPermissionCheck(ctx context.Context,
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	secret, token, err := token.NewJWT(v1.TokenType_TOKEN_TYPE_API, "api-server-cli", t.issuer, req.Roles, req.Permissions, expires, privateKey)
+	secret, token, err := tokenutil.NewJWT(apiv1.TokenType_TOKEN_TYPE_API, "api-server-cli", t.issuer, expires, privateKey)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	token.Description = req.Description
+	token.Permissions = req.Permissions
+	token.ProjectRoles = req.ProjectRoles
+	token.TenantRoles = req.TenantRoles
+	token.AdminRole = req.AdminRole
 
 	err = t.tokens.Set(ctx, token)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	return connect.NewResponse(&v1.TokenServiceCreateResponse{
+	return connect.NewResponse(&apiv1.TokenServiceCreateResponse{
 		Token:  token,
 		Secret: secret,
 	}), nil
@@ -118,14 +133,14 @@ func (t *tokenService) CreateApiTokenWithoutPermissionCheck(ctx context.Context,
 
 // Create implements TokenService.
 // TODO User is actually not able to select the Roles because there is no API Endpoint to fetch them
-func (t *tokenService) Create(ctx context.Context, rq *connect.Request[v1.TokenServiceCreateRequest]) (*connect.Response[v1.TokenServiceCreateResponse], error) {
-	claims, ok := token.TokenClaimsFromContext(ctx)
-	if !ok || claims == nil {
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("no claims found in request"))
+func (t *tokenService) Create(ctx context.Context, rq *connect.Request[apiv1.TokenServiceCreateRequest]) (*connect.Response[apiv1.TokenServiceCreateResponse], error) {
+	token, ok := tokenutil.TokenFromContext(ctx)
+	if !ok || token == nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("no token found in request"))
 	}
 	req := rq.Msg
 
-	err := validateTokenCreate(claims, req, t.servicePermissions, t.adminSubjects)
+	err := validateTokenCreate(token, req, t.servicePermissions, t.adminSubjects)
 	if err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
@@ -135,19 +150,23 @@ func (t *tokenService) Create(ctx context.Context, rq *connect.Request[v1.TokenS
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	secret, token, err := token.NewJWT(v1.TokenType_TOKEN_TYPE_API, claims.Subject, t.issuer, req.Roles, req.Permissions, req.Expires.AsDuration(), privateKey)
+	secret, token, err := tokenutil.NewJWT(apiv1.TokenType_TOKEN_TYPE_API, token.GetUserId(), t.issuer, req.Expires.AsDuration(), privateKey)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	token.Description = req.Description
+	token.Permissions = req.Permissions
+	token.ProjectRoles = req.ProjectRoles
+	token.TenantRoles = req.TenantRoles
+	token.AdminRole = req.AdminRole
 
 	err = t.tokens.Set(ctx, token)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	resp := &v1.TokenServiceCreateResponse{
+	resp := &apiv1.TokenServiceCreateResponse{
 		Token:  token,
 		Secret: secret,
 	}
@@ -156,56 +175,61 @@ func (t *tokenService) Create(ctx context.Context, rq *connect.Request[v1.TokenS
 }
 
 // List implements TokenService.
-func (t *tokenService) List(ctx context.Context, _ *connect.Request[v1.TokenServiceListRequest]) (*connect.Response[v1.TokenServiceListResponse], error) {
-	claims, ok := token.TokenClaimsFromContext(ctx)
-	if !ok || claims == nil {
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("no claims found in request"))
+func (t *tokenService) List(ctx context.Context, _ *connect.Request[apiv1.TokenServiceListRequest]) (*connect.Response[apiv1.TokenServiceListResponse], error) {
+	token, ok := tokenutil.TokenFromContext(ctx)
+	if !ok || token == nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("no token found in request"))
 	}
 
-	tokens, err := t.tokens.List(ctx, claims.Subject)
+	tokens, err := t.tokens.List(ctx, token.UserId)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	return connect.NewResponse(&v1.TokenServiceListResponse{
+	return connect.NewResponse(&apiv1.TokenServiceListResponse{
 		Tokens: tokens,
 	}), nil
 }
 
 // Revoke implements TokenService.
-func (t *tokenService) Revoke(ctx context.Context, rq *connect.Request[v1.TokenServiceRevokeRequest]) (*connect.Response[v1.TokenServiceRevokeResponse], error) {
-	claims, ok := token.TokenClaimsFromContext(ctx)
-	if !ok || claims == nil {
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("no claims found in request"))
-	}
-	token := &v1.Token{
-		UserId: claims.Subject,
-		Uuid:   rq.Msg.Uuid,
+func (t *tokenService) Revoke(ctx context.Context, rq *connect.Request[apiv1.TokenServiceRevokeRequest]) (*connect.Response[apiv1.TokenServiceRevokeResponse], error) {
+	token, ok := tokenutil.TokenFromContext(ctx)
+	if !ok || token == nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("no token found in request"))
 	}
 
-	err := t.tokens.Revoke(ctx, token)
+	err := t.tokens.Revoke(ctx, token.UserId, rq.Msg.Uuid)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	return connect.NewResponse(&v1.TokenServiceRevokeResponse{}), nil
+	return connect.NewResponse(&apiv1.TokenServiceRevokeResponse{}), nil
 }
 
-func validateTokenCreate(claims *token.Claims, req *v1.TokenServiceCreateRequest, servicePermissions *permissions.ServicePermissions, adminSubjects []string) error {
+func validateTokenCreate(currentToken *apiv1.Token, req *apiv1.TokenServiceCreateRequest, servicePermissions *permissions.ServicePermissions, adminIDs []string) error {
+	var (
+		tokenPermissionsMap = method.PermissionsBySubject(currentToken)
+		tokenProjectRoles   = currentToken.ProjectRoles
+		tokenTenantRoles    = currentToken.TenantRoles
+
+		requestedProjectRoles = req.ProjectRoles
+		requestedTenantRoles  = req.TenantRoles
+		requestedAdminRole    = req.AdminRole
+		requestedPermissions  = req.Permissions
+	)
+
 	// First check all requested permissions are defined in servicePermissions
 
-	// if claim permissions are empty fill them from claim roles
+	// if token permissions are empty fill them from token roles
 	// methods restrictions are inherited from the user role for every project
-	if len(claims.Permissions) == 0 {
-		claims.Permissions = token.AllowedMethods(servicePermissions, claims)
+	if len(tokenPermissionsMap) == 0 {
+		tokenPermissionsMap = method.AllowedMethodsFromRoles(servicePermissions, currentToken)
 	}
 
-	requestedPermissions := req.Permissions
-	claimPermissions := claims.Permissions
 	for _, reqSubjectPermission := range requestedPermissions {
 		reqSubjectID := reqSubjectPermission.Subject
 		// Check if the requested subject, e.g. project or organization can be accessed
-		claimProjectPermissions, ok := claimPermissions[reqSubjectID]
+		tokenProjectPermissions, ok := tokenPermissionsMap[reqSubjectID]
 		if !ok {
 			return fmt.Errorf("requested subject:%q access is not allowed", reqSubjectID)
 		}
@@ -216,51 +240,90 @@ func validateTokenCreate(claims *token.Claims, req *v1.TokenServiceCreateRequest
 				return fmt.Errorf("requested method:%q is not allowed", reqMethod)
 			}
 
-			// Check if the requested permissions are part of the claim
-			if !slices.Contains(claimProjectPermissions, reqMethod) {
+			// Check if the requested permissions are part of the token
+			if !slices.Contains(tokenProjectPermissions.Methods, reqMethod) {
 				return fmt.Errorf("requested method:%q is not allowed for subject:%q", reqMethod, reqSubjectID)
 			}
 		}
 	}
 
-	// Check if requested roles do not exceed existing roles
-	requestedRoles := req.Roles
-	claimRoles := claims.Roles
+	// derive if a user has admin privileges in case he belongs to a certain id, which was preconfigured in the deployment
+	for _, subject := range adminIDs {
+		if currentToken.UserId != subject {
+			// we exclude invited members of an admin tenant
+			continue
+		}
 
-	for _, subject := range adminSubjects {
-		role, ok := claimRoles[subject]
-		if ok && (role == v1.EDITOR || role == v1.ADMIN || role == v1.OWNER) {
-			// TODO maybe we put the actual role in here and make it possible to have finer grained rego rules against
-			// e.g. claimRoles["*"] = "editor"
-			claimRoles["*"] = "admin"
-			break
+		role, ok := currentToken.TenantRoles[subject]
+		if !ok {
+			continue
+		}
+
+		switch role {
+		case apiv1.TenantRole_TENANT_ROLE_EDITOR, apiv1.TenantRole_TENANT_ROLE_OWNER:
+			currentToken.AdminRole = pointer.Pointer(apiv1.AdminRole_ADMIN_ROLE_EDITOR)
+		case apiv1.TenantRole_TENANT_ROLE_VIEWER:
+			currentToken.AdminRole = pointer.Pointer(apiv1.AdminRole_ADMIN_ROLE_VIEWER)
+		case apiv1.TenantRole_TENANT_ROLE_GUEST, apiv1.TenantRole_TENANT_ROLE_UNSPECIFIED:
+			// noop
+		default:
+			// noop
 		}
 	}
 
-	// first check if the requested role subject is part of the claim subject
-	for _, reqRole := range requestedRoles {
-		claimRole, ok := claimRoles[reqRole.Subject]
-		if !ok {
-			return fmt.Errorf("requested subject:%q is not allowed", reqRole.Subject)
-		}
-		claimRoleIndex := slices.Index(v1.RolesDescending, claimRole)
-		if claimRoleIndex < 0 {
-			return fmt.Errorf("claim role:%q is not known", claimRole)
+	// Check if requested roles do not exceed existing roles
+
+	// first check if the requested role subject is part of the token subject
+	for reqProjectID, reqRole := range requestedProjectRoles {
+		if reqRole == apiv1.ProjectRole_PROJECT_ROLE_UNSPECIFIED {
+			return fmt.Errorf("requested project role:%q is not allowed", reqRole.String())
 		}
 
-		reqRoleIndex := slices.Index(v1.RolesDescending, reqRole.Role)
-		if reqRoleIndex < 0 {
-			return fmt.Errorf("requested role:%q is not known", reqRole.Role)
+		projectRole, ok := tokenProjectRoles[reqProjectID]
+		if !ok {
+			return fmt.Errorf("requested project:%q is not allowed", reqProjectID)
 		}
-		// ADMIN has the lowest index
-		if reqRoleIndex < claimRoleIndex {
-			return fmt.Errorf("requested role:%q is higher than allowed role:%q", reqRole.Role, claimRole)
+
+		// OWNER has the lowest index
+		if reqRole < projectRole {
+			return fmt.Errorf("requested role:%q is higher than allowed role:%q", reqRole.String(), projectRole.String())
+		}
+	}
+
+	for reqTenantID, reqRole := range requestedTenantRoles {
+		if reqRole == apiv1.TenantRole_TENANT_ROLE_UNSPECIFIED {
+			return fmt.Errorf("requested tenant role:%q is not allowed", reqRole.String())
+		}
+
+		tenantRole, ok := tokenTenantRoles[reqTenantID]
+		if !ok {
+			return fmt.Errorf("requested tenant:%q is not allowed", reqTenantID)
+		}
+
+		// OWNER has the lowest index
+		if reqRole < tenantRole {
+			return fmt.Errorf("requested role:%q is higher than allowed role:%q", reqRole.String(), tenantRole.String())
+		}
+	}
+
+	if requestedAdminRole != nil {
+		if currentToken.AdminRole == nil {
+			return fmt.Errorf("requested admin role:%q is not allowed", requestedAdminRole.String())
+		}
+
+		if *requestedAdminRole == apiv1.AdminRole_ADMIN_ROLE_UNSPECIFIED {
+			return fmt.Errorf("requested admin role:%q is not allowed", requestedAdminRole.String())
+		}
+
+		if *requestedAdminRole < *currentToken.AdminRole {
+			return fmt.Errorf("requested admin role:%q is not allowed", requestedAdminRole.String())
 		}
 	}
 
 	// Validate Expire
-	if req.Expires.AsDuration() > token.MaxExpiration {
-		return fmt.Errorf("requested expiration duration:%q exceeds max expiration:%q", req.Expires.AsDuration(), token.MaxExpiration)
+	if req.Expires.AsDuration() > tokenutil.MaxExpiration {
+		return fmt.Errorf("requested expiration duration:%q exceeds max expiration:%q", req.Expires.AsDuration(), tokenutil.MaxExpiration)
 	}
+
 	return nil
 }

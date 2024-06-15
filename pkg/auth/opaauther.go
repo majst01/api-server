@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -11,12 +12,15 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/metal-stack/api-server/pkg/auth/policies"
 	"github.com/metal-stack/api-server/pkg/certs"
+	"github.com/metal-stack/api-server/pkg/service/method"
 	"github.com/metal-stack/api-server/pkg/token"
+	"github.com/metal-stack/api/go/api/v1"
 	"github.com/metal-stack/api/go/permissions"
 	"github.com/metal-stack/metal-lib/pkg/cache"
 	"github.com/open-policy-agent/opa/rego"
 	"github.com/open-policy-agent/opa/storage/inmem"
 	"github.com/open-policy-agent/opa/topdown/print"
+	"github.com/redis/go-redis/v9"
 )
 
 // TODO check https://github.com/akshayjshah/connectauth for optimization
@@ -29,6 +33,7 @@ type Config struct {
 	Log            *slog.Logger
 	CertStore      certs.CertStore
 	CertCacheTime  *time.Duration
+	TokenStore     token.TokenStore
 	AllowedIssuers []string
 }
 
@@ -48,6 +53,7 @@ type opa struct {
 	visibility         permissions.Visibility
 	servicePermissions *permissions.ServicePermissions
 	certCache          *cache.Cache[any, *cacheReturn]
+	tokenStore         token.TokenStore
 }
 
 type cacheReturn struct {
@@ -113,6 +119,7 @@ func New(c Config) (*opa, error) {
 				raw: raw,
 			}, nil
 		}),
+		tokenStore:         c.TokenStore,
 		qDecision:          &qDecision,
 		visibility:         servicePermissions.Visibility,
 		servicePermissions: servicePermissions,
@@ -174,31 +181,28 @@ func (o *opa) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 			return nil, fmt.Errorf("opa engine not initialized properly, forgot AuthzLoad ?")
 		}
 
-		claims, err := o.authorize(ctx, req.Spec().Procedure, req.Header().Get, req.Any())
+		t, err := o.authorize(ctx, req.Spec().Procedure, req.Header().Get, req.Any())
 		if err != nil {
 			return nil, err
 		}
 
-		// Store the Claims in the context for later evaluation
-		if claims != nil {
-			ctx = token.ContextWithTokenClaims(ctx, claims)
+		// Store the token in the context for later use in the service methods
+		if t != nil {
+			ctx = token.ContextWithToken(ctx, t)
 		}
 
 		resp, err := next(ctx, req)
 		if err != nil {
 			return nil, fmt.Errorf("unable to process request %w", err)
 		}
+
 		return resp, err
 	})
 }
 
-func (o *opa) authorize(ctx context.Context, methodName string, jwtTokenfunc func(string) string, req any) (*token.Claims, error) {
+func (o *opa) authorize(ctx context.Context, methodName string, jwtTokenfunc func(string) string, req any) (*apiv1.Token, error) {
 	// Allow all methods which have public visibility defined in the proto definition
 	// o.log.Debug("authorize", "method", methodName, "req", req, "visibility", o.visibility, "servicepermissions", *o.servicePermissions)
-
-	bearer := jwtTokenfunc(authorizationHeader)
-
-	_, jwtToken, _ := strings.Cut(bearer, " ")
 
 	jwks, err := o.certCache.Get(ctx, nil)
 	if err != nil {
@@ -215,13 +219,48 @@ func (o *opa) authorize(ctx context.Context, methodName string, jwtTokenfunc fun
 		}
 	}
 
-	ok, err := o.decide(ctx, newOpaRequest(methodName, req, jwtToken, jwks.raw), methodName)
+	bearer := jwtTokenfunc(authorizationHeader)
+
+	_, jwtToken, _ := strings.Cut(bearer, " ") // TODO: validation / extraction of bearer should be improved
+
+	var (
+		t            *apiv1.Token
+		projectRoles map[string]apiv1.ProjectRole
+		tenantRoles  map[string]apiv1.TenantRole
+		permissions  map[string]*apiv1.MethodPermission
+		adminRole    *apiv1.AdminRole
+	)
+
+	if jwtToken != "" {
+		// we validate the jwt in opa, so it's okay to already extract permissions from unverified token here
+		// TODO: validate token with OPA here (not check authorization yet) and get claims, then we have a valid token for sure
+		// https://www.openpolicyagent.org/docs/latest/extensions/#custom-built-in-functions-in-go
+		claims, err := token.ParseJWTToken(jwtToken)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid token"))
+		}
+
+		t, err = o.tokenStore.Get(ctx, claims.Subject, claims.ID)
+		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("token was revoked or has expired"))
+			}
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+
+		projectRoles = t.ProjectRoles
+		tenantRoles = t.TenantRoles
+		permissions = method.PermissionsBySubject(t)
+		adminRole = t.AdminRole
+	}
+
+	ok, err := o.decide(ctx, newOpaRequest(methodName, req, permissions, projectRoles, tenantRoles, adminRole, jwtToken, jwks.raw), methodName)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, err)
 	}
 
 	if ok {
-		return token.ParseJWTToken(jwtToken)
+		return t, nil
 	}
 
 	return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: %s", methodName))
@@ -262,11 +301,42 @@ func (o *opa) decide(ctx context.Context, input map[string]any, method string) (
 	return allow, nil
 }
 
-func newOpaRequest(method string, req any, token, jwks string) map[string]any {
-	return map[string]any{
+func newOpaRequest(method string, req any, methodPermissions map[string]*apiv1.MethodPermission, projectRoles map[string]apiv1.ProjectRole, tenantRoles map[string]apiv1.TenantRole, adminRole *apiv1.AdminRole, token, jwks string) map[string]any {
+	input := map[string]any{
 		"method":  method,
 		"request": req,
 		"token":   token,
 		"jwks":    jwks,
 	}
+
+	if len(methodPermissions) > 0 {
+		permissions := map[string][]string{}
+		for subject, methodPerms := range methodPermissions {
+			permissions[subject] = append(permissions[subject], methodPerms.Methods...)
+		}
+
+		input["permissions"] = permissions
+	}
+
+	if len(projectRoles) > 0 {
+		roles := map[string]string{}
+		for project, role := range projectRoles {
+			roles[project] = role.String()
+		}
+		input["project_roles"] = roles
+	}
+
+	if len(tenantRoles) > 0 {
+		roles := map[string]string{}
+		for tenant, role := range tenantRoles {
+			roles[tenant] = role.String()
+		}
+		input["tenant_roles"] = roles
+	}
+
+	if adminRole != nil {
+		input["admin_role"] = adminRole.String()
+	}
+
+	return input
 }

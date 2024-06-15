@@ -86,8 +86,11 @@ func Test_tenantInterceptor_WrapUnary(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 
+		_, client := metalmock.NewMetalMockClient(t, tt.metalMocks)
+
 		ipService := ipservice.New(ipservice.Config{
-			Log: logger,
+			Log:         logger,
+			MetalClient: client,
 		})
 
 		tenantInterceptor := newMockedTenantServiceInterceptor(tt.tenantServiceMock, tt.projectServiceMock)

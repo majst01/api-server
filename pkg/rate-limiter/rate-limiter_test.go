@@ -13,7 +13,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	v1 "github.com/metal-stack/api/go/api/v1"
+	apiv1 "github.com/metal-stack/api/go/api/v1"
 )
 
 func Test_ratelimiter_CheckLimitTokenAccess(t *testing.T) {
@@ -30,18 +30,16 @@ func Test_ratelimiter_CheckLimitTokenAccess(t *testing.T) {
 	}).LatestPrivate(context.Background())
 	require.NoError(t, err)
 
-	tokenString, _, err := token.NewJWT(v1.TokenType_TOKEN_TYPE_CONSOLE, "userid", "issuer", nil, nil, 30*time.Minute, privateKey)
-	require.NoError(t, err)
-	claims, err := token.ParseJWTToken(tokenString)
+	_, tok, err := token.NewJWT(apiv1.TokenType_TOKEN_TYPE_CONSOLE, "userid", "issuer", 30*time.Minute, privateKey)
 	require.NoError(t, err)
 
 	for i := 0; i <= 20; i++ {
-		allowed, err := limiter.CheckLimitTokenAccess(ctx, claims, 20)
+		allowed, err := limiter.CheckLimitTokenAccess(ctx, tok, 20)
 		require.NoError(t, err)
 		assert.True(t, allowed)
 	}
 
-	allowed, err := limiter.CheckLimitTokenAccess(ctx, claims, 20)
+	allowed, err := limiter.CheckLimitTokenAccess(ctx, tok, 20)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "you have reached the per-minute API rate limit (limit: 20)")
 	assert.False(t, allowed)

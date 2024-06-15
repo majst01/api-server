@@ -8,7 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
-	v1 "github.com/metal-stack/api/go/api/v1"
+	apiv1 "github.com/metal-stack/api/go/api/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -18,41 +18,21 @@ var (
 )
 
 type (
-	// MethodPermissions is a map from project or organization ->[]methods, e.g.: "/api.v1.ClusterService/List"
-	MethodPermissions map[string][]string
-	// TokenRoles maps the role to subject
-	// subject can be either * (Wildcard) or the concrete Organization or Project
-	// role can be one of admin, owner, editor, viewer
-	TokenRoles map[string]string
-	Claims     struct {
+	Claims struct {
 		jwt.RegisteredClaims
 
-		Roles       TokenRoles        `json:"roles,omitempty"`
-		Permissions MethodPermissions `json:"permissions,omitempty"`
-		Type        string            `json:"type"`
+		Type string `json:"type"`
 	}
 
-	tokenClaimsContextKey struct{}
+	tokenContextKey struct{}
 )
 
-func NewJWT(tokenType v1.TokenType, subject, issuer string, roles []*v1.TokenRole, projectPermissions []*v1.MethodPermission, expires time.Duration, secret crypto.PrivateKey) (string, *v1.Token, error) {
+func NewJWT(tokenType apiv1.TokenType, subject, issuer string, expires time.Duration, secret crypto.PrivateKey) (string, *apiv1.Token, error) {
 	if expires == 0 {
 		expires = DefaultExpiration
 	}
 	if expires > MaxExpiration {
 		return "", nil, fmt.Errorf("expires:%q exceeds maximum:%q", expires, MaxExpiration)
-	}
-
-	pp := MethodPermissions{}
-
-	for _, p := range projectPermissions {
-		pp[p.Subject] = p.Methods
-	}
-
-	tr := TokenRoles{}
-
-	for _, r := range roles {
-		tr[r.Subject] = r.Role
 	}
 
 	issuedAt := time.Now().UTC()
@@ -74,9 +54,7 @@ func NewJWT(tokenType v1.TokenType, subject, issuer string, roles []*v1.TokenRol
 			Subject: subject,
 			Issuer:  issuer,
 		},
-		Permissions: pp,
-		Roles:       tr,
-		Type:        tokenType.String(),
+		Type: tokenType.String(),
 	}
 
 	jwtWithClaims := jwt.NewWithClaims(jwt.SigningMethodES512, claims)
@@ -85,14 +63,12 @@ func NewJWT(tokenType v1.TokenType, subject, issuer string, roles []*v1.TokenRol
 		return "", nil, fmt.Errorf("unable to sign ES512 JWT: %w", err)
 	}
 
-	token := &v1.Token{
-		Uuid:        claims.RegisteredClaims.ID,
-		UserId:      subject,
-		Permissions: projectPermissions,
-		Roles:       roles,
-		Expires:     timestamppb.New(expiresAt),
-		IssuedAt:    timestamppb.New(issuedAt),
-		TokenType:   tokenType,
+	token := &apiv1.Token{
+		Uuid:      claims.RegisteredClaims.ID,
+		UserId:    subject,
+		Expires:   timestamppb.New(expiresAt),
+		IssuedAt:  timestamppb.New(issuedAt),
+		TokenType: tokenType,
 	}
 
 	return res, token, nil
@@ -114,17 +90,18 @@ func ParseJWTToken(token string) (*Claims, error) {
 	return claims, nil
 }
 
-// ContextWithTokenClaims stores the Claims in the Context
-// Can later retrieved with TokenClaimsFromContext
-func ContextWithTokenClaims(ctx context.Context, claims *Claims) context.Context {
-	return context.WithValue(ctx, tokenClaimsContextKey{}, claims)
+// ContextWithToken stores the token in the Context
+// Can later retrieved with TokenFromContext
+func ContextWithToken(ctx context.Context, token *apiv1.Token) context.Context {
+	return context.WithValue(ctx, tokenContextKey{}, token)
 }
 
-// TokenClaimsFromContext retrieves the token claims and ok from the context
-// if previously stored by calling ContextWithTokenClaims.
-func TokenClaimsFromContext(ctx context.Context) (*Claims, bool) {
-	value := ctx.Value(tokenClaimsContextKey{})
+// TokenFromContext retrieves the token and ok from the context
+// if previously stored by calling ContextWithToken.
+func TokenFromContext(ctx context.Context) (*apiv1.Token, bool) {
+	value := ctx.Value(tokenContextKey{})
 
-	tokenClaims, ok := value.(*Claims)
-	return tokenClaims, ok
+	token, ok := value.(*apiv1.Token)
+
+	return token, ok
 }

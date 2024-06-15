@@ -9,7 +9,7 @@ visibility := {"public": {"/api.v1.PublicService/List": true}, "private": {"/api
 test_public_visibility_with_token_allowed if {
 	decision.allow with input as {
 		"method": "/api.v1.PublicService/List",
-		"token": jwt,
+		"token": valid_jwt,
 		"request": {"project": "project-a"},
 		"jwks": json.marshal(public),
 	}
@@ -31,9 +31,10 @@ test_public_visibility_without_token_allowed if {
 test_private_visibility_with_token_not_allowed if {
 	not decision.allow with input as {
 		"method": "/api.v1.PrivateService/List",
-		"token": jwt,
+		"token": valid_jwt,
 		"request": {"project": "project-a"},
 		"jwks": json.marshal(public),
+		"permissions": {"project-a": ["/api.v1.PrivateService/List"]},
 	}
 		with data.methods as visibilitymethods
 		with data.visibility as visibility

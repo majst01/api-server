@@ -25,8 +25,8 @@ func New() apiv1connect.MethodServiceHandler {
 }
 
 func (m *methodServiceServer) List(ctx context.Context, _ *connect.Request[apiv1.MethodServiceListRequest]) (*connect.Response[apiv1.MethodServiceListResponse], error) {
-	claims, ok := token.TokenClaimsFromContext(ctx)
-	if !ok || claims == nil {
+	token, ok := token.TokenFromContext(ctx)
+	if !ok || token == nil {
 		// only list public methods when there is no token
 
 		var methods []string
@@ -41,7 +41,7 @@ func (m *methodServiceServer) List(ctx context.Context, _ *connect.Request[apiv1
 
 	var (
 		methods      []string
-		isAdminToken = token.IsAdminToken(claims)
+		isAdminToken = IsAdminToken(token)
 	)
 	for m := range m.servicePermissions.Methods {
 		if isAdminToken {
@@ -60,32 +60,15 @@ func (m *methodServiceServer) List(ctx context.Context, _ *connect.Request[apiv1
 }
 
 func (m *methodServiceServer) TokenScopedList(ctx context.Context, _ *connect.Request[apiv1.MethodServiceTokenScopedListRequest]) (*connect.Response[apiv1.MethodServiceTokenScopedListResponse], error) {
-	claims, ok := token.TokenClaimsFromContext(ctx)
-	if !ok || claims == nil {
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("no claims found in request"))
-	}
-
-	var (
-		permissions []*apiv1.MethodPermission
-		roles       []*apiv1.TokenRole
-	)
-
-	for project, methods := range token.AllowedMethods(m.servicePermissions, claims) {
-		permissions = append(permissions, &apiv1.MethodPermission{
-			Subject: project,
-			Methods: methods,
-		})
-	}
-
-	for subject, role := range claims.Roles {
-		roles = append(roles, &apiv1.TokenRole{
-			Subject: subject,
-			Role:    role,
-		})
+	token, ok := token.TokenFromContext(ctx)
+	if !ok || token == nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("no token found in request"))
 	}
 
 	return connect.NewResponse(&apiv1.MethodServiceTokenScopedListResponse{
-		Permissions: permissions,
-		Roles:       roles,
+		Permissions:  token.Permissions,
+		ProjectRoles: token.ProjectRoles,
+		TenantRoles:  token.TenantRoles,
+		AdminRole:    token.AdminRole,
 	}), nil
 }
