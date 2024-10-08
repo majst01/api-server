@@ -1,5 +1,5 @@
 FROM openpolicyagent/opa:latest-static as opa
-FROM golang:1.22-alpine as builder
+FROM golang:1.23-alpine as builder
 
 RUN apk add \
     binutils \

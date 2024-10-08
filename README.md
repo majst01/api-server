@@ -194,7 +194,7 @@ Enjoy.
 ## Validation
 
 Request validation is done already in the proto message level and enforced by a grpc interceptor.
-Every field/property of a request message can be annotated with `proto` options comming from the [protoc-gen-validate](https://github.com/envoyproxy/protoc-gen-validate) project.
+Every field/property of a request message can be annotated with `proto` options coming from the [protoc-gen-validate](https://github.com/envoyproxy/protoc-gen-validate) project.
 
 As an example see this IPGetRequest message:
 

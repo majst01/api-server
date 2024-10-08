@@ -9,8 +9,8 @@ import (
 	metalgo "github.com/metal-stack/metal-go"
 	metalhealth "github.com/metal-stack/metal-go/api/client/health"
 	"github.com/metal-stack/metal-go/api/models"
+	health "github.com/metal-stack/metal-lib/pkg/healthstatus"
 	"github.com/metal-stack/metal-lib/pkg/pointer"
-	"github.com/metal-stack/metal-lib/rest"
 )
 
 type machineHealthChecker struct {
@@ -37,12 +37,12 @@ func (h *machineHealthChecker) Health(ctx context.Context) *apiv1.HealthStatus {
 	}
 
 	status := apiv1.ServiceStatus_SERVICE_STATUS_HEALTHY
-	switch rest.HealthStatus(pointer.SafeDeref(healthResp.Status)) {
-	case rest.HealthStatusHealthy:
+	switch health.HealthStatus(pointer.SafeDeref(healthResp.Status)) {
+	case health.HealthStatusHealthy:
 		status = apiv1.ServiceStatus_SERVICE_STATUS_HEALTHY
-	case rest.HealthStatusDegraded, rest.HealthStatusPartiallyUnhealthy:
+	case health.HealthStatusDegraded, health.HealthStatusPartiallyUnhealthy:
 		status = apiv1.ServiceStatus_SERVICE_STATUS_DEGRADED
-	case rest.HealthStatusUnhealthy:
+	case health.HealthStatusUnhealthy:
 		status = apiv1.ServiceStatus_SERVICE_STATUS_UNHEALTHY
 	}
 

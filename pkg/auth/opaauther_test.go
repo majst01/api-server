@@ -264,7 +264,7 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 
 			_, err = o.authorize(ctx, tt.method, jwtTokenFunc, tt.req)
 			if diff := cmp.Diff(tt.wantErr, err, testcommon.ErrorStringComparer()); diff != "" {
-				t.Errorf(err.Error())
+				t.Error(err.Error())
 				t.Errorf("error diff (+got -want):\n %s", diff)
 			}
 		})
