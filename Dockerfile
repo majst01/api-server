@@ -13,7 +13,6 @@ COPY --from=opa /opa /usr/local/bin/opa
 COPY . .
 RUN make
 
-FROM alpine:3.20
-RUN apk add ca-certificates
+FROM gcr.io/distroless-debian12:nonroot
 COPY --from=builder /work/bin/server /
 ENTRYPOINT [ "/server" ]

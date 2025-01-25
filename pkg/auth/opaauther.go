@@ -14,12 +14,12 @@ import (
 	"github.com/metal-stack/api-server/pkg/certs"
 	"github.com/metal-stack/api-server/pkg/service/method"
 	"github.com/metal-stack/api-server/pkg/token"
-	"github.com/metal-stack/api/go/api/v1"
+	apiv1 "github.com/metal-stack/api/go/api/v1"
 	"github.com/metal-stack/api/go/permissions"
 	"github.com/metal-stack/metal-lib/pkg/cache"
-	"github.com/open-policy-agent/opa/rego"
-	"github.com/open-policy-agent/opa/storage/inmem"
-	"github.com/open-policy-agent/opa/topdown/print"
+	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/open-policy-agent/opa/v1/storage/inmem"
+	"github.com/open-policy-agent/opa/v1/topdown/print"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -41,8 +41,9 @@ type printHook struct {
 	log *slog.Logger
 }
 
-func (p *printHook) Print(_ print.Context, msg string) error {
-	p.log.Debug("rego evaluation", "print output", msg)
+// Print implements print.Hook.
+func (p *printHook) Print(ctx print.Context, msg string) error {
+	p.log.Debug("rego evaluation", "print output", msg, "print context", ctx)
 	return nil
 }
 
