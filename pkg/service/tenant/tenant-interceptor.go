@@ -15,15 +15,21 @@ import (
 	"github.com/metal-stack/security"
 )
 
-type tenantInterceptor struct {
-	projectCache *cache.Cache[string, *mdcv1.Project]
-	log          *slog.Logger
-	masterClient mdc.Client
-}
+type (
+	tenantInterceptor struct {
+		projectCache *cache.Cache[string, *mdcv1.Project]
+		log          *slog.Logger
+		masterClient mdc.Client
+	}
 
-type projectRequest interface {
-	GetProject() string
-}
+	projectRequest interface {
+		GetProject() string
+	}
+
+	tenantRequest interface {
+		GetLogin() string
+	}
+)
 
 func NewInterceptor(log *slog.Logger, masterClient mdc.Client) *tenantInterceptor {
 	return &tenantInterceptor{
@@ -44,56 +50,100 @@ func NewInterceptor(log *slog.Logger, masterClient mdc.Client) *tenantIntercepto
 func (i *tenantInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 	return connect.UnaryFunc(func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 		var (
-			email   = ""
-			name    = ""
-			tenant  = ""
-			subject = ""
-		)
-
-		t, ok := token.TokenFromContext(ctx)
-		if ok {
-			subject = t.UserId
-		}
-
-		defer func() {
-			// after we know project and tenant, we can set the user for auditing
-			ctx = security.PutUserInContext(ctx, &security.User{
-				EMail:   email,
-				Name:    name,
-				Tenant:  tenant,
+			tenant  *mdcv1.Tenant
+			project *mdcv1.Project
+			user    = &security.User{
+				EMail:   "",
+				Name:    "",
+				Tenant:  "",
 				Groups:  []security.ResourceAccess{},
 				Issuer:  "",
-				Subject: subject,
-			})
-		}()
+				Subject: "",
+			}
+		)
 
-		rq := req.Any()
-		switch pr := rq.(type) {
+		tok, tokenInCtx := token.TokenFromContext(ctx)
+		if tokenInCtx {
+			user.Subject = tok.UserId
+		}
+
+		switch rq := req.Any().(type) {
 		case projectRequest:
-			projectID := pr.GetProject()
-			i.log.Debug("tenant interceptor", "project", projectID)
+			projectID := rq.GetProject()
+			i.log.Debug("tenant interceptor", "request-scope", "project", "id", projectID)
 
-			project, err := i.projectCache.Get(ctx, projectID)
-			if err != nil {
+			var err error
+			project, err = i.projectCache.Get(ctx, projectID)
+			if mdcv1.IsNotFound(err) {
 				return nil, connect.NewError(connect.CodeNotFound, err)
+			}
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
 			}
 
 			// TODO: use cache? ==> but then refresh when tenant gets updated because fields may change
 			tgr, err := i.masterClient.Tenant().Get(ctx, &mdcv1.TenantGetRequest{Id: project.TenantId})
-			if err != nil {
-				i.log.Error("unary", "tenant does not exist", project.TenantId, "error", err)
+			if mdcv1.IsNotFound(err) {
 				return nil, connect.NewError(connect.CodeNotFound, err)
 			}
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
 
-			tenant = tgr.Tenant.Meta.Id
-			email = tgr.Tenant.Meta.Annotations[tutil.TagEmail]
+			tenant = tgr.Tenant
 
-			ctx := tutil.ContextWithProjectAndTenant(ctx, project, tgr.Tenant)
+			user.Tenant = tgr.Tenant.Meta.Id
+			user.EMail = tgr.Tenant.Meta.Annotations[tutil.TagEmail]
+		case tenantRequest:
+			tenantID := rq.GetLogin()
+			i.log.Debug("tenant interceptor", "request-scope", "tenant", "id", tenantID)
 
-			return next(ctx, req)
+			tgr, err := i.masterClient.Tenant().Get(ctx, &mdcv1.TenantGetRequest{Id: tenantID})
+			if mdcv1.IsNotFound(err) {
+				return nil, connect.NewError(connect.CodeNotFound, err)
+			}
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+
+			tenant = tgr.Tenant
+
+			user.Tenant = tgr.Tenant.Meta.Id
+			user.EMail = tgr.Tenant.Meta.Annotations[tutil.TagEmail]
 		default:
-			return next(ctx, req)
+			// TODO: IMHO it would be better to do directly after looking up the token from the ctx and not only in the default case? (api-server#538)
+			if !tokenInCtx || tok == nil {
+				i.log.Debug("tenant interceptor", "request-scope", "public")
+
+				// update the context with the user information BEFORE calling next
+				ctx = security.PutUserInContext(ctx, user)
+
+				// allow unauthenticated requests
+				return next(ctx, req)
+			}
+
+			i.log.Debug("tenant interceptor", "request-scope", "other")
+
+			tgr, err := i.masterClient.Tenant().Get(ctx, &mdcv1.TenantGetRequest{Id: tok.UserId})
+			if mdcv1.IsNotFound(err) {
+				return nil, connect.NewError(connect.CodeNotFound, err)
+			}
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+
+			tenant = tgr.Tenant
+
+			user.Tenant = tgr.Tenant.Meta.Id
+			user.EMail = tgr.Tenant.Meta.Annotations[tutil.TagEmail]
 		}
+
+		ctx = tutil.ContextWithProjectAndTenant(ctx, project, tenant)
+
+		// update the context with the user information BEFORE calling next
+		ctx = security.PutUserInContext(ctx, user)
+
+		return next(ctx, req)
 	})
 }
 

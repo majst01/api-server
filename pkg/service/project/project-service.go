@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/metal-stack/api-server/pkg/invite"
 	putil "github.com/metal-stack/api-server/pkg/project"
-	"github.com/metal-stack/api-server/pkg/service/user"
 	tutil "github.com/metal-stack/api-server/pkg/tenant"
 	"github.com/metal-stack/api-server/pkg/token"
 	apiv1 "github.com/metal-stack/api/go/api/v1"
@@ -24,7 +23,6 @@ import (
 	"github.com/metal-stack/metal-go/api/client/project"
 	"github.com/metal-stack/metal-go/api/models"
 	"github.com/metal-stack/metal-lib/pkg/pointer"
-	"github.com/redis/go-redis/v9"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -165,12 +163,12 @@ func (p *projectServiceServer) List(ctx context.Context, rq *connect.Request[api
 		result []*apiv1.Project
 	)
 
-	pat, err := user.GetProjectsAndTenants(ctx, p.masterClient, token.UserId)
+	projectsAndTenants, err := putil.GetProjectsAndTenants(ctx, p.masterClient, token.UserId)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("error retrieving projects from backend: %w", err))
 	}
 
-	for _, project := range pat.Projects {
+	for _, project := range projectsAndTenants.Projects {
 		// TODO: maybe we can pass the filter and not filter here
 
 		if req.Name != nil && project.Name != *req.Name {
@@ -212,6 +210,9 @@ func (p *projectServiceServer) Create(ctx context.Context, rq *connect.Request[a
 		Project: &v1.Project{
 			Meta: &v1.Meta{
 				Id: uuid.NewString(),
+				Annotations: map[string]string{
+					putil.AvatarURLAnnotation: pointer.SafeDeref(req.AvatarUrl),
+				},
 			},
 			Name:        req.Name,
 			Description: req.Description,
@@ -240,17 +241,6 @@ func (p *projectServiceServer) Create(ctx context.Context, rq *connect.Request[a
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unable to store project member: %w", err))
-	}
-
-	// inject new project into token roles to give immediate access to the project with the accessing token
-	if t.ProjectRoles == nil {
-		t.ProjectRoles = map[string]apiv1.ProjectRole{}
-	}
-	t.ProjectRoles[project.Uuid] = apiv1.ProjectRole_PROJECT_ROLE_OWNER
-
-	err = p.tokenStore.Set(ctx, t)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("project was created but error when injecting role into current session token, re-issue token to receive access to the project: %w", err))
 	}
 
 	return connect.NewResponse(&apiv1.ProjectServiceCreateResponse{Project: project}), nil
@@ -329,6 +319,10 @@ func (p *projectServiceServer) Update(ctx context.Context, rq *connect.Request[a
 		project.Description = *req.Description
 	}
 
+	if req.AvatarUrl != nil {
+		project.Meta.Annotations[putil.AvatarURLAnnotation] = *req.AvatarUrl
+	}
+
 	updatedResp, err := p.masterClient.Project().Update(ctx, &v1.ProjectUpdateRequest{
 		Project: project,
 	})
@@ -385,23 +379,61 @@ func (p *projectServiceServer) UpdateMember(ctx context.Context, rq *connect.Req
 	var (
 		req = rq.Msg
 	)
-
 	membership, project, err := putil.GetProjectMember(ctx, p.masterClient, req.Project, req.MemberId)
+	var connectErr *connect.Error
+
+	if errors.As(err, &connectErr) {
+		if connectErr.Code() == connect.CodeNotFound {
+			// if there does not exist a direct membership for this user but the user belongs to the tenant already, we create a direct membership for the project
+			projectGuest, projecterr := putil.GetProject(ctx, p.masterClient, req.Project)
+			if projecterr != nil {
+				return nil, err
+			}
+			partiTenants, err := p.masterClient.Tenant().FindParticipatingTenants(ctx, &v1.FindParticipatingTenantsRequest{TenantId: req.MemberId, IncludeInherited: pointer.Pointer(true)})
+			if err != nil {
+				return nil, err
+			}
+			found := false
+			for _, tenantWrapper := range partiTenants.Tenants {
+				tenantID := tenantWrapper.Tenant.Meta.Id
+				if tenantID == projectGuest.TenantId {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("tenant is not part of the project's tenants"))
+			}
+			// Create new project membership since the user is part of the tenant
+			membership, err = p.createProjectMembership(ctx, req.MemberId, req.Project, req.Role)
+
+			if err != nil {
+				return nil, err
+			}
+
+			return connect.NewResponse(&apiv1.ProjectServiceUpdateMemberResponse{
+				ProjectMember: &apiv1.ProjectMember{
+					Id:                  req.MemberId,
+					Role:                req.Role,
+					InheritedMembership: false,
+					CreatedAt:           membership.Meta.CreatedTime,
+				},
+			}), nil
+		}
+
+	}
 	if err != nil {
 		return nil, err
 	}
-
 	if putil.IsDefaultProject(project) && project.TenantId == req.MemberId && req.Role != apiv1.ProjectRole_PROJECT_ROLE_OWNER {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("cannot demote a user's role within their default project"))
 	}
-
 	if req.Role != apiv1.ProjectRole_PROJECT_ROLE_UNSPECIFIED {
 		// TODO: currently the API defines that only owners can update members so there is no possibility to elevate permissions
 		// probably, we should still check that no elevation of permissions is possible in case we later change the API
 
 		membership.Meta.Annotations[putil.ProjectRoleAnnotation] = req.Role.String()
 	}
-
 	lastOwner, err := p.checkIfMemberIsLastOwner(ctx, membership)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -422,20 +454,42 @@ func (p *projectServiceServer) UpdateMember(ctx context.Context, rq *connect.Req
 	}}), nil
 }
 
+func (p *projectServiceServer) createProjectMembership(ctx context.Context, tenantID, projectID string, role apiv1.ProjectRole) (*v1.ProjectMember, error) {
+	newMembership := &v1.ProjectMember{
+		ProjectId: projectID,
+		TenantId:  tenantID,
+		Meta: &v1.Meta{
+			Annotations: map[string]string{
+				putil.ProjectRoleAnnotation: role.String(),
+			},
+		},
+	}
+	//If there is no role specified, give him Viewer. This can happen only in the CLI
+	if role == apiv1.ProjectRole_PROJECT_ROLE_UNSPECIFIED {
+		newMembership.Meta.Annotations[putil.ProjectRoleAnnotation] = apiv1.ProjectRole_PROJECT_ROLE_VIEWER.String()
+	}
+	// Attempt to create the new project membership
+	createdMember, err := p.masterClient.ProjectMember().Create(ctx, &v1.ProjectMemberCreateRequest{ProjectMember: newMembership})
+	if err != nil {
+		return nil, err
+	}
+	return createdMember.ProjectMember, nil
+}
+
 func (p *projectServiceServer) InviteGet(ctx context.Context, rq *connect.Request[apiv1.ProjectServiceInviteGetRequest]) (*connect.Response[apiv1.ProjectServiceInviteGetResponse], error) {
 	var (
 		req = rq.Msg
 	)
 
-	invite, err := p.inviteStore.GetInvite(ctx, req.Secret)
+	inv, err := p.inviteStore.GetInvite(ctx, req.Secret)
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
+		if errors.Is(err, invite.ErrInviteNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("the given invitation does not exist anymore"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	return connect.NewResponse(&apiv1.ProjectServiceInviteGetResponse{Invite: invite}), nil
+	return connect.NewResponse(&apiv1.ProjectServiceInviteGetResponse{Invite: inv}), nil
 }
 
 func (p *projectServiceServer) Invite(ctx context.Context, rq *connect.Request[apiv1.ProjectServiceInviteRequest]) (*connect.Response[apiv1.ProjectServiceInviteResponse], error) {
@@ -500,9 +554,9 @@ func (p *projectServiceServer) InviteAccept(ctx context.Context, rq *connect.Req
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("no token found in request"))
 	}
 
-	invite, err := p.inviteStore.GetInvite(ctx, req.Secret)
+	inv, err := p.inviteStore.GetInvite(ctx, req.Secret)
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
+		if errors.Is(err, invite.ErrInviteNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("the given invitation does not exist anymore"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -518,10 +572,10 @@ func (p *projectServiceServer) InviteAccept(ctx context.Context, rq *connect.Req
 	invitee := tgr.Tenant
 
 	pgr, err := p.masterClient.Project().Get(ctx, &v1.ProjectGetRequest{
-		Id: invite.Project,
+		Id: inv.Project,
 	})
 	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no project:%q for invite not found %w", invite.Project, err))
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no project:%q for invite not found %w", inv.Project, err))
 	}
 
 	if pgr.Project.TenantId == invitee.Meta.Id {
@@ -529,7 +583,7 @@ func (p *projectServiceServer) InviteAccept(ctx context.Context, rq *connect.Req
 	}
 
 	memberships, err := p.masterClient.ProjectMember().Find(ctx, &v1.ProjectMemberFindRequest{
-		ProjectId: &invite.Project,
+		ProjectId: &inv.Project,
 		TenantId:  &invitee.Meta.Id,
 	})
 	if err != nil {
@@ -537,10 +591,10 @@ func (p *projectServiceServer) InviteAccept(ctx context.Context, rq *connect.Req
 	}
 
 	if len(memberships.GetProjectMembers()) > 0 {
-		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("%s is already member of project %s", invitee.Meta.Id, invite.Project))
+		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("%s is already member of project %s", invitee.Meta.Id, inv.Project))
 	}
 
-	err = p.inviteStore.DeleteInvite(ctx, invite)
+	err = p.inviteStore.DeleteInvite(ctx, inv)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -549,10 +603,10 @@ func (p *projectServiceServer) InviteAccept(ctx context.Context, rq *connect.Req
 		ProjectMember: &v1.ProjectMember{
 			Meta: &v1.Meta{
 				Annotations: map[string]string{
-					putil.ProjectRoleAnnotation: invite.Role.String(),
+					putil.ProjectRoleAnnotation: inv.Role.String(),
 				},
 			},
-			ProjectId: invite.Project,
+			ProjectId: inv.Project,
 			TenantId:  invitee.Meta.Id,
 		},
 	})
@@ -560,7 +614,7 @@ func (p *projectServiceServer) InviteAccept(ctx context.Context, rq *connect.Req
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unable to store project member: %w", err))
 	}
 
-	return connect.NewResponse(&apiv1.ProjectServiceInviteAcceptResponse{Project: invite.Project, ProjectName: invite.ProjectName}), nil
+	return connect.NewResponse(&apiv1.ProjectServiceInviteAcceptResponse{Project: inv.Project, ProjectName: inv.ProjectName}), nil
 }
 
 func (p *projectServiceServer) InviteDelete(ctx context.Context, rq *connect.Request[apiv1.ProjectServiceInviteDeleteRequest]) (*connect.Response[apiv1.ProjectServiceInviteDeleteResponse], error) {

@@ -9,19 +9,19 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	putil "github.com/metal-stack/api-server/pkg/project"
+	msvc "github.com/metal-stack/api-server/pkg/service/method"
 	apiv1 "github.com/metal-stack/api/go/api/v1"
-
-	"github.com/metal-stack/api-server/pkg/invite"
-	"github.com/metal-stack/api-server/pkg/service/user"
-	tutil "github.com/metal-stack/api-server/pkg/tenant"
-	"github.com/metal-stack/api-server/pkg/token"
 	"github.com/metal-stack/api/go/api/v1/apiv1connect"
 	mdcv1 "github.com/metal-stack/masterdata-api/api/v1"
 	mdc "github.com/metal-stack/masterdata-api/pkg/client"
 	"github.com/metal-stack/metal-lib/pkg/pointer"
-	"github.com/redis/go-redis/v9"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/metal-stack/api-server/pkg/invite"
+	tutil "github.com/metal-stack/api-server/pkg/tenant"
+	"github.com/metal-stack/api-server/pkg/token"
 )
 
 type Config struct {
@@ -37,7 +37,11 @@ type tenantServiceServer struct {
 	tokenStore   token.TokenStore
 }
 
-func New(c Config) apiv1connect.TenantServiceHandler {
+type TenantService interface {
+	apiv1connect.TenantServiceHandler
+}
+
+func New(c Config) TenantService {
 	return &tenantServiceServer{
 		log:          c.Log.WithGroup("tenantService"),
 		masterClient: c.MasterClient,
@@ -57,12 +61,12 @@ func (u *tenantServiceServer) List(ctx context.Context, rq *connect.Request[apiv
 		result []*apiv1.Tenant
 	)
 
-	pat, err := user.GetProjectsAndTenants(ctx, u.masterClient, token.UserId)
+	projectsAndTenants, err := putil.GetProjectsAndTenants(ctx, u.masterClient, token.UserId)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("error retrieving tenants from backend: %w", err))
 	}
 
-	for _, tenant := range pat.Tenants {
+	for _, tenant := range projectsAndTenants.Tenants {
 		// TODO: maybe we can pass the filter and not filter here
 
 		if req.Name != nil && tenant.Name != *req.Name {
@@ -117,6 +121,9 @@ func (u *tenantServiceServer) Create(ctx context.Context, rq *connect.Request[ap
 	if req.AvatarUrl != nil {
 		ann[tutil.TagAvatarURL] = *req.AvatarUrl
 	}
+	if req.PhoneNumber != nil {
+		ann[tutil.TagPhoneNumber] = *req.PhoneNumber
+	}
 
 	tcr, err := u.masterClient.Tenant().Create(ctx, &mdcv1.TenantCreateRequest{Tenant: &mdcv1.Tenant{
 		Meta: &mdcv1.Meta{
@@ -144,17 +151,6 @@ func (u *tenantServiceServer) Create(ctx context.Context, rq *connect.Request[ap
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unable to store tenant member: %w", err))
 	}
 
-	// inject new tenant into token roles to give immediate access to the tenant with the accessing token
-	if t.TenantRoles == nil {
-		t.TenantRoles = map[string]apiv1.TenantRole{}
-	}
-	t.TenantRoles[tcr.Tenant.Meta.Id] = apiv1.TenantRole_TENANT_ROLE_OWNER
-
-	err = u.tokenStore.Set(ctx, t)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("tenant was created but error when injecting role into current session token, re-issue token to receive access to the tenant: %w", err))
-	}
-
 	return connect.NewResponse(&apiv1.TenantServiceCreateResponse{Tenant: tutil.ConvertFromTenant(tcr.Tenant)}), nil
 }
 
@@ -179,7 +175,6 @@ func (u *tenantServiceServer) Get(ctx context.Context, rq *connect.Request[apiv1
 	}
 
 	tenant := tutil.ConvertFromTenant(resp.Tenant)
-
 	role := t.TenantRoles[req.Login]
 	switch role {
 	case apiv1.TenantRole_TENANT_ROLE_OWNER, apiv1.TenantRole_TENANT_ROLE_EDITOR, apiv1.TenantRole_TENANT_ROLE_VIEWER:
@@ -198,6 +193,9 @@ func (u *tenantServiceServer) Get(ctx context.Context, rq *connect.Request[apiv1
 			DeletedAt:   tenant.DeletedAt,
 		}, TenantMembers: nil}), nil
 	case apiv1.TenantRole_TENANT_ROLE_UNSPECIFIED:
+		if msvc.IsAdminToken(t) {
+			break
+		}
 		fallthrough
 	default:
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("tenant role insufficient"))
@@ -216,10 +214,12 @@ func (u *tenantServiceServer) Get(ctx context.Context, rq *connect.Request[apiv1
 		}
 
 		tenantMembers = append(tenantMembers, &apiv1.TenantMember{
-			Id:        member.Tenant.Meta.Id,
-			Role:      tenantRole,
-			CreatedAt: member.Tenant.Meta.CreatedTime,
+			Id:         member.Tenant.Meta.Id,
+			Role:       tenantRole,
+			CreatedAt:  member.Tenant.Meta.CreatedTime,
+			ProjectIds: member.ProjectIds,
 		})
+
 	}
 
 	sort.Slice(tenantMembers, func(i, j int) bool {
@@ -365,9 +365,9 @@ func (u *tenantServiceServer) InviteAccept(ctx context.Context, rq *connect.Requ
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("no token found in request"))
 	}
 
-	invite, err := u.inviteStore.GetInvite(ctx, req.Secret)
+	inv, err := u.inviteStore.GetInvite(ctx, req.Secret)
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
+		if errors.Is(err, invite.ErrInviteNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("the given invitation does not exist anymore"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -382,12 +382,12 @@ func (u *tenantServiceServer) InviteAccept(ctx context.Context, rq *connect.Requ
 
 	invitee := tgr.Tenant
 
-	if invitee.Meta.Id == invite.TargetTenant {
+	if invitee.Meta.Id == inv.TargetTenant {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("an owner cannot accept invitations to own tenants"))
 	}
 
 	memberships, err := u.masterClient.TenantMember().Find(ctx, &mdcv1.TenantMemberFindRequest{
-		TenantId: &invite.TargetTenant,
+		TenantId: &inv.TargetTenant,
 		MemberId: &invitee.Meta.Id,
 	})
 	if err != nil {
@@ -395,10 +395,10 @@ func (u *tenantServiceServer) InviteAccept(ctx context.Context, rq *connect.Requ
 	}
 
 	if len(memberships.GetTenantMembers()) > 0 {
-		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("%s is already member of tenant %s", invitee.Meta.Id, invite.TargetTenant))
+		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("%s is already member of tenant %s", invitee.Meta.Id, inv.TargetTenant))
 	}
 
-	err = u.inviteStore.DeleteInvite(ctx, invite)
+	err = u.inviteStore.DeleteInvite(ctx, inv)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -407,18 +407,18 @@ func (u *tenantServiceServer) InviteAccept(ctx context.Context, rq *connect.Requ
 		TenantMember: &mdcv1.TenantMember{
 			Meta: &mdcv1.Meta{
 				Annotations: map[string]string{
-					tutil.TenantRoleAnnotation: invite.Role.String(),
+					tutil.TenantRoleAnnotation: inv.Role.String(),
 				},
 			},
 			MemberId: invitee.Meta.Id,
-			TenantId: invite.TargetTenant,
+			TenantId: inv.TargetTenant,
 		},
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unable to store tenant member: %w", err))
 	}
 
-	return connect.NewResponse(&apiv1.TenantServiceInviteAcceptResponse{Tenant: invite.TargetTenant, TenantName: invite.TargetTenantName}), nil
+	return connect.NewResponse(&apiv1.TenantServiceInviteAcceptResponse{Tenant: inv.TargetTenant, TenantName: inv.TargetTenantName}), nil
 }
 
 func (u *tenantServiceServer) InviteDelete(ctx context.Context, rq *connect.Request[apiv1.TenantServiceInviteDeleteRequest]) (*connect.Response[apiv1.TenantServiceInviteDeleteResponse], error) {
@@ -443,15 +443,15 @@ func (u *tenantServiceServer) InviteGet(ctx context.Context, rq *connect.Request
 		req = rq.Msg
 	)
 
-	invite, err := u.inviteStore.GetInvite(ctx, req.Secret)
+	inv, err := u.inviteStore.GetInvite(ctx, req.Secret)
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
+		if errors.Is(err, invite.ErrInviteNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("the given invitation does not exist anymore"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	return connect.NewResponse(&apiv1.TenantServiceInviteGetResponse{Invite: invite}), nil
+	return connect.NewResponse(&apiv1.TenantServiceInviteGetResponse{Invite: inv}), nil
 }
 
 func (u *tenantServiceServer) InvitesList(ctx context.Context, rq *connect.Request[apiv1.TenantServiceInvitesListRequest]) (*connect.Response[apiv1.TenantServiceInvitesListResponse], error) {

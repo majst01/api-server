@@ -4,14 +4,16 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/alicebob/miniredis/v2"
+	"github.com/metal-stack/api-server/pkg/invite"
 	putil "github.com/metal-stack/api-server/pkg/project"
 	tutil "github.com/metal-stack/api-server/pkg/tenant"
 	"github.com/metal-stack/api-server/pkg/token"
 	apiv1 "github.com/metal-stack/api/go/api/v1"
-	v1 "github.com/metal-stack/masterdata-api/api/v1"
+	mdmv1 "github.com/metal-stack/masterdata-api/api/v1"
 	mdmv1mock "github.com/metal-stack/masterdata-api/api/v1/mocks"
 	mdc "github.com/metal-stack/masterdata-api/pkg/client"
 	"github.com/metal-stack/metal-lib/pkg/pointer"
@@ -19,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	tmock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func newMasterdataMockClient(
@@ -66,21 +69,21 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			},
 			tenantRole: apiv1.TenantRole_TENANT_ROLE_OWNER,
 			projectServiceMock: func(mock *tmock.Mock) {
-				mock.On("Get", tmock.Anything, &v1.ProjectGetRequest{Id: "project"}).Return(&v1.ProjectResponse{
-					Project: &v1.Project{
-						Meta:     &v1.Meta{Id: "project"},
+				mock.On("Get", tmock.Anything, &mdmv1.ProjectGetRequest{Id: "project"}).Return(&mdmv1.ProjectResponse{
+					Project: &mdmv1.Project{
+						Meta:     &mdmv1.Meta{Id: "project"},
 						TenantId: "me",
 					},
 				}, nil)
 			},
 			tenantServiceMock: func(mock *tmock.Mock) {
-				mock.On("ListTenantMembers", tmock.Anything, &v1.ListTenantMembersRequest{
+				mock.On("ListTenantMembers", tmock.Anything, &mdmv1.ListTenantMembersRequest{
 					TenantId: "me", IncludeInherited: pointer.Pointer(true),
-				}).Return(&v1.ListTenantMembersResponse{
-					Tenants: []*v1.TenantWithMembershipAnnotations{
+				}).Return(&mdmv1.ListTenantMembersResponse{
+					Tenants: []*mdmv1.TenantWithMembershipAnnotations{
 						{
-							Tenant: &v1.Tenant{
-								Meta: &v1.Meta{Id: "me"},
+							Tenant: &mdmv1.Tenant{
+								Meta: &mdmv1.Meta{Id: "me"},
 							},
 							ProjectAnnotations: map[string]string{
 								putil.ProjectRoleAnnotation: apiv1.ProjectRole_PROJECT_ROLE_OWNER.String(),
@@ -93,12 +96,12 @@ func Test_projectServiceServer_Get(t *testing.T) {
 				}, nil)
 			},
 			projectMemberServiceMock: func(mock *tmock.Mock) {
-				mock.On("Find", tmock.Anything, &v1.ProjectMemberFindRequest{
+				mock.On("Find", tmock.Anything, &mdmv1.ProjectMemberFindRequest{
 					ProjectId: pointer.Pointer("project"),
-				}).Return(&v1.ProjectMemberListResponse{
-					ProjectMembers: []*v1.ProjectMember{
+				}).Return(&mdmv1.ProjectMemberListResponse{
+					ProjectMembers: []*mdmv1.ProjectMember{
 						{
-							Meta: &v1.Meta{
+							Meta: &mdmv1.Meta{
 								Annotations: map[string]string{
 									putil.ProjectRoleAnnotation: apiv1.ProjectRole_PROJECT_ROLE_OWNER.String(),
 								},
@@ -111,8 +114,9 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			},
 			want: &apiv1.ProjectServiceGetResponse{
 				Project: &apiv1.Project{
-					Uuid:   "project",
-					Tenant: "me",
+					Uuid:      "project",
+					Tenant:    "me",
+					AvatarUrl: pointer.Pointer(""),
 				},
 				ProjectMembers: []*apiv1.ProjectMember{
 					{
@@ -130,29 +134,29 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			},
 			tenantRole: apiv1.TenantRole_TENANT_ROLE_OWNER,
 			projectServiceMock: func(mock *tmock.Mock) {
-				mock.On("Get", tmock.Anything, &v1.ProjectGetRequest{Id: "project"}).Return(&v1.ProjectResponse{
-					Project: &v1.Project{
-						Meta:     &v1.Meta{Id: "project"},
+				mock.On("Get", tmock.Anything, &mdmv1.ProjectGetRequest{Id: "project"}).Return(&mdmv1.ProjectResponse{
+					Project: &mdmv1.Project{
+						Meta:     &mdmv1.Meta{Id: "project"},
 						TenantId: "me",
 					},
 				}, nil)
 			},
 			tenantServiceMock: func(mock *tmock.Mock) {
-				mock.On("ListTenantMembers", tmock.Anything, &v1.ListTenantMembersRequest{
+				mock.On("ListTenantMembers", tmock.Anything, &mdmv1.ListTenantMembersRequest{
 					TenantId: "me", IncludeInherited: pointer.Pointer(true),
-				}).Return(&v1.ListTenantMembersResponse{
-					Tenants: []*v1.TenantWithMembershipAnnotations{
+				}).Return(&mdmv1.ListTenantMembersResponse{
+					Tenants: []*mdmv1.TenantWithMembershipAnnotations{
 						{
-							Tenant: &v1.Tenant{
-								Meta: &v1.Meta{Id: "me"},
+							Tenant: &mdmv1.Tenant{
+								Meta: &mdmv1.Meta{Id: "me"},
 							},
 							TenantAnnotations: map[string]string{
 								tutil.TenantRoleAnnotation: apiv1.TenantRole_TENANT_ROLE_OWNER.String(),
 							},
 						},
 						{
-							Tenant: &v1.Tenant{
-								Meta: &v1.Meta{Id: "guest"},
+							Tenant: &mdmv1.Tenant{
+								Meta: &mdmv1.Meta{Id: "guest"},
 							},
 							TenantAnnotations: map[string]string{
 								tutil.TenantRoleAnnotation: apiv1.TenantRole_TENANT_ROLE_GUEST.String(),
@@ -162,12 +166,12 @@ func Test_projectServiceServer_Get(t *testing.T) {
 				}, nil)
 			},
 			projectMemberServiceMock: func(mock *tmock.Mock) {
-				mock.On("Find", tmock.Anything, &v1.ProjectMemberFindRequest{
+				mock.On("Find", tmock.Anything, &mdmv1.ProjectMemberFindRequest{
 					ProjectId: pointer.Pointer("project"),
-				}).Return(&v1.ProjectMemberListResponse{
-					ProjectMembers: []*v1.ProjectMember{
+				}).Return(&mdmv1.ProjectMemberListResponse{
+					ProjectMembers: []*mdmv1.ProjectMember{
 						{
-							Meta: &v1.Meta{
+							Meta: &mdmv1.Meta{
 								Annotations: map[string]string{
 									putil.ProjectRoleAnnotation: apiv1.ProjectRole_PROJECT_ROLE_OWNER.String(),
 								},
@@ -176,7 +180,7 @@ func Test_projectServiceServer_Get(t *testing.T) {
 							TenantId:  "me",
 						},
 						{
-							Meta: &v1.Meta{
+							Meta: &mdmv1.Meta{
 								Annotations: map[string]string{
 									putil.ProjectRoleAnnotation: apiv1.ProjectRole_PROJECT_ROLE_VIEWER.String(),
 								},
@@ -189,8 +193,9 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			},
 			want: &apiv1.ProjectServiceGetResponse{
 				Project: &apiv1.Project{
-					Uuid:   "project",
-					Tenant: "me",
+					Uuid:      "project",
+					Tenant:    "me",
+					AvatarUrl: pointer.Pointer(""),
 				},
 				ProjectMembers: []*apiv1.ProjectMember{
 					{
@@ -212,29 +217,29 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			},
 			tenantRole: apiv1.TenantRole_TENANT_ROLE_OWNER,
 			projectServiceMock: func(mock *tmock.Mock) {
-				mock.On("Get", tmock.Anything, &v1.ProjectGetRequest{Id: "project"}).Return(&v1.ProjectResponse{
-					Project: &v1.Project{
-						Meta:     &v1.Meta{Id: "project"},
+				mock.On("Get", tmock.Anything, &mdmv1.ProjectGetRequest{Id: "project"}).Return(&mdmv1.ProjectResponse{
+					Project: &mdmv1.Project{
+						Meta:     &mdmv1.Meta{Id: "project"},
 						TenantId: "me",
 					},
 				}, nil)
 			},
 			tenantServiceMock: func(mock *tmock.Mock) {
-				mock.On("ListTenantMembers", tmock.Anything, &v1.ListTenantMembersRequest{
+				mock.On("ListTenantMembers", tmock.Anything, &mdmv1.ListTenantMembersRequest{
 					TenantId: "me", IncludeInherited: pointer.Pointer(true),
-				}).Return(&v1.ListTenantMembersResponse{
-					Tenants: []*v1.TenantWithMembershipAnnotations{
+				}).Return(&mdmv1.ListTenantMembersResponse{
+					Tenants: []*mdmv1.TenantWithMembershipAnnotations{
 						{
-							Tenant: &v1.Tenant{
-								Meta: &v1.Meta{Id: "me"},
+							Tenant: &mdmv1.Tenant{
+								Meta: &mdmv1.Meta{Id: "me"},
 							},
 							TenantAnnotations: map[string]string{
 								tutil.TenantRoleAnnotation: apiv1.TenantRole_TENANT_ROLE_OWNER.String(),
 							},
 						},
 						{
-							Tenant: &v1.Tenant{
-								Meta: &v1.Meta{Id: "editor"},
+							Tenant: &mdmv1.Tenant{
+								Meta: &mdmv1.Meta{Id: "editor"},
 							},
 							TenantAnnotations: map[string]string{
 								tutil.TenantRoleAnnotation: apiv1.TenantRole_TENANT_ROLE_VIEWER.String(),
@@ -244,12 +249,12 @@ func Test_projectServiceServer_Get(t *testing.T) {
 				}, nil)
 			},
 			projectMemberServiceMock: func(mock *tmock.Mock) {
-				mock.On("Find", tmock.Anything, &v1.ProjectMemberFindRequest{
+				mock.On("Find", tmock.Anything, &mdmv1.ProjectMemberFindRequest{
 					ProjectId: pointer.Pointer("project"),
-				}).Return(&v1.ProjectMemberListResponse{
-					ProjectMembers: []*v1.ProjectMember{
+				}).Return(&mdmv1.ProjectMemberListResponse{
+					ProjectMembers: []*mdmv1.ProjectMember{
 						{
-							Meta: &v1.Meta{
+							Meta: &mdmv1.Meta{
 								Annotations: map[string]string{
 									putil.ProjectRoleAnnotation: apiv1.ProjectRole_PROJECT_ROLE_OWNER.String(),
 								},
@@ -258,7 +263,7 @@ func Test_projectServiceServer_Get(t *testing.T) {
 							TenantId:  "me",
 						},
 						{
-							Meta: &v1.Meta{
+							Meta: &mdmv1.Meta{
 								Annotations: map[string]string{
 									putil.ProjectRoleAnnotation: apiv1.ProjectRole_PROJECT_ROLE_EDITOR.String(),
 								},
@@ -271,8 +276,9 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			},
 			want: &apiv1.ProjectServiceGetResponse{
 				Project: &apiv1.Project{
-					Uuid:   "project",
-					Tenant: "me",
+					Uuid:      "project",
+					Tenant:    "me",
+					AvatarUrl: pointer.Pointer(""),
 				},
 				ProjectMembers: []*apiv1.ProjectMember{
 					{
@@ -294,29 +300,29 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			},
 			tenantRole: apiv1.TenantRole_TENANT_ROLE_OWNER,
 			projectServiceMock: func(mock *tmock.Mock) {
-				mock.On("Get", tmock.Anything, &v1.ProjectGetRequest{Id: "project"}).Return(&v1.ProjectResponse{
-					Project: &v1.Project{
-						Meta:     &v1.Meta{Id: "project"},
+				mock.On("Get", tmock.Anything, &mdmv1.ProjectGetRequest{Id: "project"}).Return(&mdmv1.ProjectResponse{
+					Project: &mdmv1.Project{
+						Meta:     &mdmv1.Meta{Id: "project"},
 						TenantId: "me",
 					},
 				}, nil)
 			},
 			tenantServiceMock: func(mock *tmock.Mock) {
-				mock.On("ListTenantMembers", tmock.Anything, &v1.ListTenantMembersRequest{
+				mock.On("ListTenantMembers", tmock.Anything, &mdmv1.ListTenantMembersRequest{
 					TenantId: "me", IncludeInherited: pointer.Pointer(true),
-				}).Return(&v1.ListTenantMembersResponse{
-					Tenants: []*v1.TenantWithMembershipAnnotations{
+				}).Return(&mdmv1.ListTenantMembersResponse{
+					Tenants: []*mdmv1.TenantWithMembershipAnnotations{
 						{
-							Tenant: &v1.Tenant{
-								Meta: &v1.Meta{Id: "me"},
+							Tenant: &mdmv1.Tenant{
+								Meta: &mdmv1.Meta{Id: "me"},
 							},
 							TenantAnnotations: map[string]string{
 								tutil.TenantRoleAnnotation: apiv1.TenantRole_TENANT_ROLE_OWNER.String(),
 							},
 						},
 						{
-							Tenant: &v1.Tenant{
-								Meta: &v1.Meta{Id: "owner"},
+							Tenant: &mdmv1.Tenant{
+								Meta: &mdmv1.Meta{Id: "owner"},
 							},
 							TenantAnnotations: map[string]string{
 								tutil.TenantRoleAnnotation: apiv1.TenantRole_TENANT_ROLE_OWNER.String(),
@@ -326,12 +332,12 @@ func Test_projectServiceServer_Get(t *testing.T) {
 				}, nil)
 			},
 			projectMemberServiceMock: func(mock *tmock.Mock) {
-				mock.On("Find", tmock.Anything, &v1.ProjectMemberFindRequest{
+				mock.On("Find", tmock.Anything, &mdmv1.ProjectMemberFindRequest{
 					ProjectId: pointer.Pointer("project"),
-				}).Return(&v1.ProjectMemberListResponse{
-					ProjectMembers: []*v1.ProjectMember{
+				}).Return(&mdmv1.ProjectMemberListResponse{
+					ProjectMembers: []*mdmv1.ProjectMember{
 						{
-							Meta: &v1.Meta{
+							Meta: &mdmv1.Meta{
 								Annotations: map[string]string{
 									putil.ProjectRoleAnnotation: apiv1.ProjectRole_PROJECT_ROLE_OWNER.String(),
 								},
@@ -340,7 +346,7 @@ func Test_projectServiceServer_Get(t *testing.T) {
 							TenantId:  "me",
 						},
 						{
-							Meta: &v1.Meta{
+							Meta: &mdmv1.Meta{
 								Annotations: map[string]string{
 									putil.ProjectRoleAnnotation: apiv1.ProjectRole_PROJECT_ROLE_VIEWER.String(),
 								},
@@ -353,8 +359,9 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			},
 			want: &apiv1.ProjectServiceGetResponse{
 				Project: &apiv1.Project{
-					Uuid:   "project",
-					Tenant: "me",
+					Uuid:      "project",
+					Tenant:    "me",
+					AvatarUrl: pointer.Pointer(""),
 				},
 				ProjectMembers: []*apiv1.ProjectMember{
 					{
@@ -376,29 +383,29 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			},
 			tenantRole: apiv1.TenantRole_TENANT_ROLE_VIEWER,
 			projectServiceMock: func(mock *tmock.Mock) {
-				mock.On("Get", tmock.Anything, &v1.ProjectGetRequest{Id: "project"}).Return(&v1.ProjectResponse{
-					Project: &v1.Project{
-						Meta:     &v1.Meta{Id: "project"},
+				mock.On("Get", tmock.Anything, &mdmv1.ProjectGetRequest{Id: "project"}).Return(&mdmv1.ProjectResponse{
+					Project: &mdmv1.Project{
+						Meta:     &mdmv1.Meta{Id: "project"},
 						TenantId: "me",
 					},
 				}, nil)
 			},
 			tenantServiceMock: func(mock *tmock.Mock) {
-				mock.On("ListTenantMembers", tmock.Anything, &v1.ListTenantMembersRequest{
+				mock.On("ListTenantMembers", tmock.Anything, &mdmv1.ListTenantMembersRequest{
 					TenantId: "me", IncludeInherited: pointer.Pointer(true),
-				}).Return(&v1.ListTenantMembersResponse{
-					Tenants: []*v1.TenantWithMembershipAnnotations{
+				}).Return(&mdmv1.ListTenantMembersResponse{
+					Tenants: []*mdmv1.TenantWithMembershipAnnotations{
 						{
-							Tenant: &v1.Tenant{
-								Meta: &v1.Meta{Id: "me"},
+							Tenant: &mdmv1.Tenant{
+								Meta: &mdmv1.Meta{Id: "me"},
 							},
 							TenantAnnotations: map[string]string{
 								tutil.TenantRoleAnnotation: apiv1.TenantRole_TENANT_ROLE_OWNER.String(),
 							},
 						},
 						{
-							Tenant: &v1.Tenant{
-								Meta: &v1.Meta{Id: "viewer"},
+							Tenant: &mdmv1.Tenant{
+								Meta: &mdmv1.Meta{Id: "viewer"},
 							},
 							TenantAnnotations: map[string]string{
 								tutil.TenantRoleAnnotation: apiv1.TenantRole_TENANT_ROLE_VIEWER.String(),
@@ -408,12 +415,12 @@ func Test_projectServiceServer_Get(t *testing.T) {
 				}, nil)
 			},
 			projectMemberServiceMock: func(mock *tmock.Mock) {
-				mock.On("Find", tmock.Anything, &v1.ProjectMemberFindRequest{
+				mock.On("Find", tmock.Anything, &mdmv1.ProjectMemberFindRequest{
 					ProjectId: pointer.Pointer("project"),
-				}).Return(&v1.ProjectMemberListResponse{
-					ProjectMembers: []*v1.ProjectMember{
+				}).Return(&mdmv1.ProjectMemberListResponse{
+					ProjectMembers: []*mdmv1.ProjectMember{
 						{
-							Meta: &v1.Meta{
+							Meta: &mdmv1.Meta{
 								Annotations: map[string]string{
 									putil.ProjectRoleAnnotation: apiv1.ProjectRole_PROJECT_ROLE_OWNER.String(),
 								},
@@ -426,8 +433,9 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			},
 			want: &apiv1.ProjectServiceGetResponse{
 				Project: &apiv1.Project{
-					Uuid:   "project",
-					Tenant: "me",
+					Uuid:      "project",
+					Tenant:    "me",
+					AvatarUrl: pointer.Pointer(""),
 				},
 				ProjectMembers: []*apiv1.ProjectMember{
 					{
@@ -450,20 +458,20 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			},
 			tenantRole: apiv1.TenantRole_TENANT_ROLE_GUEST,
 			projectServiceMock: func(mock *tmock.Mock) {
-				mock.On("Get", tmock.Anything, &v1.ProjectGetRequest{Id: "project"}).Return(&v1.ProjectResponse{
-					Project: &v1.Project{
-						Meta:     &v1.Meta{Id: "project"},
+				mock.On("Get", tmock.Anything, &mdmv1.ProjectGetRequest{Id: "project"}).Return(&mdmv1.ProjectResponse{
+					Project: &mdmv1.Project{
+						Meta:     &mdmv1.Meta{Id: "project"},
 						TenantId: "me",
 					},
 				}, nil)
 			},
 			projectMemberServiceMock: func(mock *tmock.Mock) {
-				mock.On("Find", tmock.Anything, &v1.ProjectMemberFindRequest{
+				mock.On("Find", tmock.Anything, &mdmv1.ProjectMemberFindRequest{
 					ProjectId: pointer.Pointer("project"),
-				}).Return(&v1.ProjectMemberListResponse{
-					ProjectMembers: []*v1.ProjectMember{
+				}).Return(&mdmv1.ProjectMemberListResponse{
+					ProjectMembers: []*mdmv1.ProjectMember{
 						{
-							Meta: &v1.Meta{
+							Meta: &mdmv1.Meta{
 								Annotations: map[string]string{
 									putil.ProjectRoleAnnotation: apiv1.ProjectRole_PROJECT_ROLE_OWNER.String(),
 								},
@@ -472,7 +480,7 @@ func Test_projectServiceServer_Get(t *testing.T) {
 							TenantId:  "me",
 						},
 						{
-							Meta: &v1.Meta{
+							Meta: &mdmv1.Meta{
 								Annotations: map[string]string{
 									putil.ProjectRoleAnnotation: apiv1.ProjectRole_PROJECT_ROLE_EDITOR.String(),
 								},
@@ -485,8 +493,9 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			},
 			want: &apiv1.ProjectServiceGetResponse{
 				Project: &apiv1.Project{
-					Uuid:   "project",
-					Tenant: "me",
+					Uuid:      "project",
+					Tenant:    "me",
+					AvatarUrl: pointer.Pointer(""),
 				},
 				ProjectMembers: []*apiv1.ProjectMember{
 					{
@@ -526,6 +535,117 @@ func Test_projectServiceServer_Get(t *testing.T) {
 			result, err := p.Get(ctx, connect.NewRequest(tt.req))
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, result.Msg)
+		})
+	}
+}
+
+func Test_service_InviteAccept(t *testing.T) {
+	ctx := context.Background()
+	secret, err := invite.GenerateInviteSecret()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name                     string
+		tenant                   *apiv1.ProjectServiceInviteAcceptRequest
+		token                    *apiv1.Token
+		projectServiceMock       func(mock *tmock.Mock)
+		tenantServiceMock        func(mock *tmock.Mock)
+		projectMemberServiceMock func(mock *tmock.Mock)
+		inviteStorePrepare       func(store invite.ProjectInviteStore)
+		want                     *apiv1.ProjectServiceInviteAcceptResponse
+		wantErr                  *connect.Error
+	}{
+		{
+			name: "accept an invite",
+			tenant: &apiv1.ProjectServiceInviteAcceptRequest{
+				Secret: secret,
+			},
+			token: &apiv1.Token{
+				Uuid:   "123",
+				UserId: "new-member",
+			},
+			tenantServiceMock: func(mock *tmock.Mock) {
+				mock.On("Get", tmock.Anything, &mdmv1.TenantGetRequest{Id: "new-member"}).Return(&mdmv1.TenantResponse{Tenant: &mdmv1.Tenant{
+					Meta: &mdmv1.Meta{Id: "new-member"},
+				}}, nil)
+			},
+			projectServiceMock: func(mock *tmock.Mock) {
+				mock.On("Get", tmock.Anything, &mdmv1.ProjectGetRequest{Id: "1"}).Return(&mdmv1.ProjectResponse{Project: &mdmv1.Project{
+					Meta:     &mdmv1.Meta{Id: "1"},
+					TenantId: "a",
+				}}, nil)
+			},
+			projectMemberServiceMock: func(mock *tmock.Mock) {
+				mock.On("Find", tmock.Anything, &mdmv1.ProjectMemberFindRequest{TenantId: pointer.Pointer("new-member"), ProjectId: pointer.Pointer("1")}).Return(&mdmv1.ProjectMemberListResponse{ProjectMembers: nil}, nil)
+				mock.On("Create", tmock.Anything, &mdmv1.ProjectMemberCreateRequest{
+					ProjectMember: &mdmv1.ProjectMember{
+						Meta: &mdmv1.Meta{
+							Annotations: map[string]string{
+								putil.ProjectRoleAnnotation: apiv1.ProjectRole_PROJECT_ROLE_EDITOR.String(),
+							},
+						},
+						TenantId:  "new-member",
+						ProjectId: "1",
+					},
+				}).Return(&mdmv1.ProjectMemberResponse{
+					ProjectMember: &mdmv1.ProjectMember{
+						Meta: &mdmv1.Meta{
+							Id: "a-random-uuid",
+						},
+						TenantId:  "new-member",
+						ProjectId: "1",
+					},
+				}, nil)
+			},
+			inviteStorePrepare: func(store invite.ProjectInviteStore) {
+				err := store.SetInvite(ctx, &apiv1.ProjectInvite{
+					Secret:      secret,
+					Project:     "1",
+					Role:        apiv1.ProjectRole_PROJECT_ROLE_EDITOR,
+					Joined:      false,
+					ProjectName: "name of 1",
+					Tenant:      "user a",
+					TenantName:  "name of user a",
+					ExpiresAt:   timestamppb.New(time.Now().Add(10 * time.Minute)),
+					JoinedAt:    nil,
+				})
+				require.NoError(t, err)
+			},
+			want: &apiv1.ProjectServiceInviteAcceptResponse{
+				ProjectName: "name of 1",
+				Project:     "1",
+			},
+			wantErr: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := miniredis.RunT(t)
+			defer m.Close()
+
+			var (
+				c = redis.NewClient(&redis.Options{Addr: m.Addr()})
+
+				inviteStore = invite.NewProjectRedisStore(c)
+			)
+
+			ctx := token.ContextWithToken(ctx, tt.token)
+
+			if tt.inviteStorePrepare != nil {
+				tt.inviteStorePrepare(inviteStore)
+			}
+
+			p := &projectServiceServer{
+				log:          slog.Default(),
+				masterClient: newMasterdataMockClient(t, tt.tenantServiceMock, nil, tt.projectServiceMock, tt.projectMemberServiceMock),
+				inviteStore:  inviteStore,
+			}
+
+			result, err := p.InviteAccept(ctx, connect.NewRequest(tt.tenant))
+			require.NoError(t, err)
+
+			assert.Equal(t, result.Msg.ProjectName, tt.want.ProjectName)
+			assert.Equal(t, result.Msg.Project, tt.want.Project)
 		})
 	}
 }
