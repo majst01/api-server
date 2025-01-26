@@ -25,6 +25,10 @@ const (
 	secretprefix  = "invitestore_by_secret_"
 )
 
+var (
+	ErrInviteNotFound = redis.Nil
+)
+
 type ProjectInviteStore interface {
 	SetInvite(ctx context.Context, invite *apiv1.ProjectInvite) error
 	GetInvite(ctx context.Context, secret string) (*apiv1.ProjectInvite, error)

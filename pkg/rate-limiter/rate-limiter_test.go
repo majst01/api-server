@@ -13,7 +13,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	apiv1 "github.com/metal-stack/api/go/api/v1"
+	v1 "github.com/metal-stack/api/go/api/v1"
 )
 
 func Test_ratelimiter_CheckLimitTokenAccess(t *testing.T) {
@@ -30,7 +30,7 @@ func Test_ratelimiter_CheckLimitTokenAccess(t *testing.T) {
 	}).LatestPrivate(context.Background())
 	require.NoError(t, err)
 
-	_, tok, err := token.NewJWT(apiv1.TokenType_TOKEN_TYPE_CONSOLE, "userid", "issuer", 30*time.Minute, privateKey)
+	_, tok, err := token.NewJWT(v1.TokenType_TOKEN_TYPE_CONSOLE, "userid", "issuer", 30*time.Minute, privateKey)
 	require.NoError(t, err)
 
 	for i := 0; i <= 20; i++ {
