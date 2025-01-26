@@ -1,4 +1,4 @@
-package api.v1.metalstack.io.authorization
+package api.v1.metalstack.io.authorization_test
 
 import rego.v1
 

@@ -1,5 +1,6 @@
-package api.v1.metalstack.io.authorization
+package api.v1.metalstack.io.authorization_test
 
+import data.api.v1.metalstack.io.authorization
 import rego.v1
 
 tokenmethods := ["/api.v1.TokenService/List", "/api.v1.TokenService/Create"]
@@ -10,7 +11,7 @@ tokenvisibility := {"self": {
 }}
 
 test_self_method_for_owner_role_allowed if {
-	decision.allow with input as {
+	authorization.decision.allow with input as {
 		"method": "/api.v1.TokenService/List",
 		"request": {},
 		"token": tokenv1,
@@ -21,7 +22,7 @@ test_self_method_for_owner_role_allowed if {
 }
 
 test_self_method_for_different_role_not_allowed if {
-	not decision.allow with input as {
+	not authorization.decision.allow with input as {
 		"method": "/api.v1.TokenService/List",
 		"request": {},
 		"token": tokenv1,
@@ -32,7 +33,7 @@ test_self_method_for_different_role_not_allowed if {
 }
 
 test_self_method_for_wrong_owner_role_not_allowed if {
-	not decision.allow with input as {
+	not authorization.decision.allow with input as {
 		"method": "/api.v1.TokenService/List",
 		"request": {},
 		"token": tokenv1,
@@ -43,7 +44,7 @@ test_self_method_for_wrong_owner_role_not_allowed if {
 }
 
 test_self_method_for_method_permission_allowed if {
-	decision.allow with input as {
+	authorization.decision.allow with input as {
 		"method": "/api.v1.TokenService/List",
 		"request": {},
 		"token": tokenv1,
@@ -54,7 +55,7 @@ test_self_method_for_method_permission_allowed if {
 }
 
 test_method_for_not_included_method_permission_not_allowed if {
-	not decision.allow with input as {
+	not authorization.decision.allow with input as {
 		"method": "/api.v1.TokenService/Revoke",
 		"request": {},
 		"token": tokenv1,
@@ -67,7 +68,7 @@ test_method_for_not_included_method_permission_not_allowed if {
 # TokenService Create has visibility self, the token does not include this in the permissions
 # but is allowed because of at least a permission is given because the service checks for proper permissions
 test_self_method_for_not_included_method_permission_allowed if {
-	decision.allow with input as {
+	authorization.decision.allow with input as {
 		"method": "/api.v1.TokenService/Create",
 		"request": {},
 		"token": tokenv1,

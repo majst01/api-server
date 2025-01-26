@@ -1,5 +1,6 @@
-package api.v1.metalstack.io.authorization
+package api.v1.metalstack.io.authorization_test
 
+import data.api.v1.metalstack.io.authorization
 import rego.v1
 
 methods := ["/api.v1.IPService/Get"]
@@ -10,7 +11,7 @@ admin_roles := {"ADMIN_ROLE_EDITOR": [
 ]}
 
 test_get_ip_allowed if {
-	decision.allow with input as {
+	authorization.decision.allow with input as {
 		"method": "/api.v1.IPService/Get",
 		"token": tokenv1,
 		"request": {"project": "project-a"},
@@ -27,7 +28,7 @@ test_get_ip_allowed if {
 }
 
 test_list_ips_not_allowed_with_wrong_permissions if {
-	not decision.allow with input as {
+	not authorization.decision.allow with input as {
 		"method": "/api.v1.IPService/List",
 		"request": null,
 		"token": tokenv1,
@@ -40,7 +41,7 @@ test_list_ips_not_allowed_with_wrong_permissions if {
 }
 
 test_list_ips_allowed if {
-	decision.allow with input as {
+	authorization.decision.allow with input as {
 		"method": "/api.v1.IPService/List",
 		"request": {"project": "project-a"},
 		"token": tokenv1,
@@ -57,7 +58,7 @@ test_list_ips_allowed if {
 }
 
 test_create_ips_allowed if {
-	decision.allow with input as {
+	authorization.decision.allow with input as {
 		"method": "/api.v1.IPService/Create",
 		"request": {"project": "project-a"},
 		"token": tokenv1,
@@ -74,7 +75,7 @@ test_create_ips_allowed if {
 }
 
 test_create_ips_not_allowed_for_other_project if {
-	not decision.allow with input as {
+	not authorization.decision.allow with input as {
 		"method": "/api.v1.IPService/Create",
 		"request": {"project": "project-c"},
 		"token": tokenv1,
@@ -91,7 +92,7 @@ test_create_ips_not_allowed_for_other_project if {
 }
 
 test_is_method_allowed if {
-	not is_method_allowed with input as {
+	not authorization.is_method_allowed with input as {
 		"method": "/api.v1.IPService/Create",
 		"request": {"project": "project-c"},
 		"token": tokenv1,
@@ -108,7 +109,7 @@ test_is_method_allowed if {
 }
 
 test_decision_reason_method_not_allowed if {
-	d := decision with input as {
+	d := authorization.decision with input as {
 		"method": "/api.v1.IPService/List",
 		"request": {"project": "project-c"},
 		"token": tokenv1,
@@ -127,7 +128,7 @@ test_decision_reason_method_not_allowed if {
 }
 
 test_decision_admin_is_allowed if {
-	d := decision with input as {
+	d := authorization.decision with input as {
 		"method": "/admin.v1.IPService/List",
 		"request": {"project": "project-c"},
 		"token": tokenv1,
