@@ -16,6 +16,7 @@ import (
 	"connectrpc.com/grpchealth"
 	"connectrpc.com/grpcreflect"
 	"connectrpc.com/otelconnect"
+	"connectrpc.com/validate"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"go.opentelemetry.io/otel/exporters/prometheus"
@@ -36,7 +37,6 @@ import (
 	"github.com/metal-stack/api-server/pkg/service/token"
 	"github.com/metal-stack/api-server/pkg/service/version"
 	tokencommon "github.com/metal-stack/api-server/pkg/token"
-	"github.com/metal-stack/api-server/pkg/validation"
 	"github.com/metal-stack/metal-lib/auditing"
 
 	"github.com/metal-stack/api/go/api/v1/apiv1connect"
@@ -110,9 +110,12 @@ func (s *server) Run() error {
 	if err != nil {
 		return err
 	}
+	validationInterceptor, err := validate.NewInterceptor()
+	if err != nil {
+		return err
+	}
 
 	tenantInterceptor := tenant.NewInterceptor(s.log, s.c.MasterClient)
-	validationInterceptor := validation.NewInterceptor(s.log)
 	ratelimitInterceptor := ratelimiter.NewInterceptor(&ratelimiter.Config{
 		Log:                                 s.log,
 		RedisClient:                         ratelimitRedisClient,
