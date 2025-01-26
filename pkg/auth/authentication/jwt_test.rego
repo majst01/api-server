@@ -1,5 +1,6 @@
-package api.v1.metalstack.io.authentication
+package api.v1.metalstack.io.authentication_test
 
+import data.api.v1.metalstack.io.authentication
 import rego.v1
 
 private1 := {
@@ -84,7 +85,7 @@ jwt_with_wrong_issuer := io.jwt.encode_sign(
 )
 
 test_token_expired if {
-	d := decision with input as {
+	d := authentication.decision with input as {
 		"token": io.jwt.encode_sign(
 			{
 				"typ": "JWT",
@@ -109,7 +110,7 @@ test_token_expired if {
 }
 
 test_invalid_issuer if {
-	d := decision with input as {
+	d := authentication.decision with input as {
 		"token": io.jwt.encode_sign(
 			{
 				"typ": "JWT",
@@ -134,7 +135,7 @@ test_invalid_issuer if {
 }
 
 test_expired_token_and_invalid_issuer if {
-	d := decision with input as {
+	d := authentication.decision with input as {
 		"token": io.jwt.encode_sign(
 			{
 				"typ": "JWT",
@@ -159,7 +160,7 @@ test_expired_token_and_invalid_issuer if {
 }
 
 test_valid_token if {
-	d := decision with input as {
+	d := authentication.decision with input as {
 		"token": io.jwt.encode_sign(
 			{
 				"typ": "JWT",

@@ -19,7 +19,7 @@ _opa:
 
 _test:
 	@$(MAKE) _opa CMD="check --v1-compatible --rego-v1 $(POLICIES_PATH)"
-	@$(MAKE) _opa CMD="test --v1-compatible -v $(POLICIES_PATH)"
+	@$(MAKE) _opa CMD="test --var-values --v1-compatible -v $(POLICIES_PATH)"
 
 .PHONY: lint
 lint: fmt
