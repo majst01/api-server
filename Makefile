@@ -25,16 +25,17 @@ test:
 
 .PHONY: test-opa
 test-opa:
-	make -C pkg/auth/policies test
+	make -C pkg/auth test
 
 .PHONY: lint-opa
 lint-opa:
-	make -C pkg/auth/policies lint
+	make -C pkg/auth lint
 
 .PHONY: opa-fmt
 opa-fmt:
 	docker pull openpolicyagent/opa:latest-static
-	docker run --rm -it --user $$(id -u):$$(id -g) -v $(PWD)/pkg/auth/policies:/work openpolicyagent/opa:latest-static fmt --v1-compatible --rego-v1 -w /work
+	docker run --rm -it --user $$(id -u):$$(id -g) -v $(PWD)/pkg/auth/authentication:/work openpolicyagent/opa:latest-static fmt --v1-compatible --rego-v1 -w /work
+	docker run --rm -it --user $$(id -u):$$(id -g) -v $(PWD)/pkg/auth/authorization:/work openpolicyagent/opa:latest-static fmt --v1-compatible --rego-v1 -w /work
 
 .PHONY: golint
 golint:

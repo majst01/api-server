@@ -12,9 +12,10 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/google/go-cmp/cmp"
 	"github.com/metal-stack/api-server/pkg/certs"
+	putil "github.com/metal-stack/api-server/pkg/project"
 	"github.com/metal-stack/api-server/pkg/token"
 	adminv1 "github.com/metal-stack/api/go/admin/v1"
-	apiv1 "github.com/metal-stack/api/go/api/v1"
+	v1 "github.com/metal-stack/api/go/api/v1"
 	"github.com/metal-stack/metal-lib/pkg/pointer"
 	"github.com/metal-stack/metal-lib/pkg/testcommon"
 	"github.com/redis/go-redis/v9"
@@ -45,31 +46,43 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 	)
 
 	tests := []struct {
-		name            string
-		subject         string
-		method          string
-		permissions     []*apiv1.MethodPermission
-		projectRoles    map[string]apiv1.ProjectRole
-		tenantRoles     map[string]apiv1.TenantRole
-		adminRole       *apiv1.AdminRole
-		userJwtMutateFn func(t *testing.T, jwt string) string
-		expiration      *time.Duration
-		req             any
-		wantErr         error
+		name               string
+		subject            string
+		method             string
+		permissions        []*v1.MethodPermission
+		projectRoles       map[string]v1.ProjectRole
+		tenantRoles        map[string]v1.TenantRole
+		adminRole          *v1.AdminRole
+		userJwtMutateFn    func(t *testing.T, jwt string) string
+		expiration         *time.Duration
+		req                any
+		projectsAndTenants *putil.ProjectsAndTenants
+		tokenType          v1.TokenType
+		wantErr            error
 	}{
 		{
 			name:    "unknown service is not allowed",
 			subject: "john.doe@github",
 			method:  "/api.v1.UnknownService/Get",
 			req:     nil,
-			permissions: []*apiv1.MethodPermission{
+			permissions: []*v1.MethodPermission{
 				{
 					Subject: "john.doe@github",
 					Methods: []string{"/api.v1.UnknownService/Get"},
 				},
 			},
-			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("access denied:method denied or unknown:/api.v1.UnknownService/Get")),
+			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("method denied or unknown: /api.v1.UnknownService/Get")),
 		},
+		// {
+		// 	name:    "cluster get not allowed, no token",
+		// 	subject: "john.doe@github",
+		// 	method:  "/api.v1.ClusterService/Get",
+		// 	req:     v1.ClusterServiceGetRequest{},
+		// 	userJwtMutateFn: func(t *testing.T, jwt string) string {
+		// 		return ""
+		// 	},
+		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.ClusterService/Get")),
+		// },
 		// FIXME: these tests did not work before because error was suppressed, fix them :(
 		// {
 		// 	name:    "cluster get not allowed, token secret malicious",
@@ -98,59 +111,238 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 		// 	},
 		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("access denied:token is not valid")),
 		// },
-
+		// {
+		// 	name:       "cluster get not allowed, token already expired",
+		// 	subject:    "john.doe@github",
+		// 	method:     "/api.v1.ClusterService/Get",
+		// 	req:        v1.ClusterServiceGetRequest{},
+		// 	expiration: &expired,
+		// 	permissions: []*v1.MethodPermission{
+		// 		{
+		// 			Subject: "john.doe@github",
+		// 			Methods: []string{"/api.v1.ClusterService/Get"},
+		// 		},
+		// 	},
+		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("token has expired")),
+		// },
+		// {
+		// 	name:    "cluster get allowed",
+		// 	subject: "john.doe@github",
+		// 	method:  "/api.v1.ClusterService/Get",
+		// 	req:     v1.ClusterServiceGetRequest{Project: "john.doe@github"},
+		// 	projectsAndTenants: &putil.ProjectsAndTenants{
+		// 		ProjectRoles: map[string]v1.ProjectRole{
+		// 			"john.doe@github": v1.ProjectRole_PROJECT_ROLE_EDITOR,
+		// 		},
+		// 	},
+		// 	permissions: []*v1.MethodPermission{
+		// 		{
+		// 			Subject: "john.doe@github",
+		// 			Methods: []string{"/api.v1.ClusterService/Get"},
+		// 		},
+		// 	},
+		// },
+		// {
+		// 	name:    "method not known",
+		// 	subject: "john.doe@github",
+		// 	method:  "/api.v1.ClusterService/Gest",
+		// 	req:     v1.ClusterServiceGetRequest{Project: "john.doe@github"},
+		// 	permissions: []*v1.MethodPermission{
+		// 		{
+		// 			Subject: "john.doe@github",
+		// 			Methods: []string{"/api.v1.ClusterService/Get"},
+		// 		},
+		// 	},
+		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("method denied or unknown: /api.v1.ClusterService/Gest")),
+		// },
+		// {
+		// 	name:    "cluster get not allowed",
+		// 	subject: "john.doe@github",
+		// 	method:  "/api.v1.ClusterService/Get",
+		// 	req:     v1.ClusterServiceGetRequest{Project: "john.doe@github"},
+		// 	permissions: []*v1.MethodPermission{
+		// 		{
+		// 			Subject: "john.doe@github",
+		// 			Methods: []string{"/api.v1.ClusterService/List"},
+		// 		},
+		// 	},
+		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.ClusterService/Get")),
+		// },
+		// {
+		// 	name:    "cluster list allowed",
+		// 	subject: "john.doe@github",
+		// 	method:  "/api.v1.ClusterService/List",
+		// 	req:     v1.ClusterServiceGetRequest{Project: "john.doe@github"},
+		// 	projectsAndTenants: &putil.ProjectsAndTenants{
+		// 		ProjectRoles: map[string]v1.ProjectRole{
+		// 			"john.doe@github": v1.ProjectRole_PROJECT_ROLE_EDITOR,
+		// 		},
+		// 	},
+		// 	permissions: []*v1.MethodPermission{
+		// 		{
+		// 			Subject: "john.doe@github",
+		// 			Methods: []string{"/api.v1.ClusterService/List"},
+		// 		},
+		// 	},
+		// },
+		// {
+		// 	name:    "cluster create allowed",
+		// 	subject: "john.doe@github",
+		// 	method:  "/api.v1.ClusterService/Create",
+		// 	req:     v1.ClusterServiceGetRequest{Project: "john.doe@github"},
+		// 	projectsAndTenants: &putil.ProjectsAndTenants{
+		// 		ProjectRoles: map[string]v1.ProjectRole{
+		// 			"john.doe@github": v1.ProjectRole_PROJECT_ROLE_EDITOR,
+		// 		},
+		// 	},
+		// 	permissions: []*v1.MethodPermission{
+		// 		{
+		// 			Subject: "john.doe@github",
+		// 			Methods: []string{"/api.v1.ClusterService/List", "/api.v1.ClusterService/Create"},
+		// 		},
+		// 	},
+		// },
+		// {
+		// 	name:    "cluster create not allowed, wrong project",
+		// 	subject: "john.doe@github",
+		// 	method:  "/api.v1.ClusterService/Create",
+		// 	req:     v1.ClusterServiceGetRequest{Project: "john.doe@github"},
+		// 	permissions: []*v1.MethodPermission{
+		// 		{
+		// 			Subject: "project-a",
+		// 			Methods: []string{"/api.v1.ClusterService/List", "/api.v1.ClusterService/Create"},
+		// 		},
+		// 	},
+		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.ClusterService/Create")),
+		// },
 		{
 			name:    "admin api tenantlist is not allowed with MethodPermissions",
 			subject: "john.doe@github",
 			method:  "/admin.v1.TenantService/List",
 			req:     adminv1.TenantServiceListRequest{},
-			permissions: []*apiv1.MethodPermission{
+			permissions: []*v1.MethodPermission{
 				{
 					Subject: "john.doe@github",
 					Methods: []string{"/admin.v1.TenantService/List"},
 				},
 			},
-			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("access denied to:/admin.v1.TenantService/List")),
+			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /admin.v1.TenantService/List")),
 		},
 		{
 			name:        "admin api tenantlist is allowed",
 			subject:     "john.doe@github",
 			method:      "/admin.v1.TenantService/List",
 			req:         adminv1.TenantServiceListRequest{},
-			permissions: []*apiv1.MethodPermission{},
-			adminRole:   pointer.Pointer(apiv1.AdminRole_ADMIN_ROLE_EDITOR),
+			permissions: []*v1.MethodPermission{},
+			adminRole:   pointer.Pointer(v1.AdminRole_ADMIN_ROLE_EDITOR),
+		},
+		{
+			name:        "admin api tenantlist is not allowed because he is not in the list of allowed admin subjects",
+			subject:     "hein.bloed@github",
+			method:      "/admin.v1.TenantService/List",
+			req:         adminv1.TenantServiceListRequest{},
+			permissions: []*v1.MethodPermission{},
+			adminRole:   pointer.Pointer(v1.AdminRole_ADMIN_ROLE_EDITOR),
+			wantErr:     connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /admin.v1.TenantService/List")),
 		},
 		{
 			name:        "admin editor accessed api/v1 methods tenant invite is allowed",
 			subject:     "john.doe@github",
 			method:      "/api.v1.TenantService/Invite",
-			req:         apiv1.TenantServiceInvitesListRequest{},
-			permissions: []*apiv1.MethodPermission{},
-			adminRole:   pointer.Pointer(apiv1.AdminRole_ADMIN_ROLE_EDITOR),
+			req:         v1.TenantServiceInvitesListRequest{},
+			permissions: []*v1.MethodPermission{},
+			adminRole:   pointer.Pointer(v1.AdminRole_ADMIN_ROLE_EDITOR),
 		},
 		{
 			name:        "admin viewer accessed api/v1 methods tenant invite is allowed",
 			subject:     "john.doe@github",
 			method:      "/api.v1.TenantService/Invite",
-			req:         apiv1.TenantServiceInvitesListRequest{},
-			permissions: []*apiv1.MethodPermission{},
-			adminRole:   pointer.Pointer(apiv1.AdminRole_ADMIN_ROLE_VIEWER),
-			wantErr:     connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("access denied to:/api.v1.TenantService/Invite")),
+			req:         v1.TenantServiceInvitesListRequest{},
+			permissions: []*v1.MethodPermission{},
+			adminRole:   pointer.Pointer(v1.AdminRole_ADMIN_ROLE_VIEWER),
+			wantErr:     connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.TenantService/Invite")),
 		},
 		{
 			name:        "admin editor can access api/v1 self methods",
 			subject:     "john.doe@github",
 			method:      "/api.v1.TenantService/InviteGet",
-			req:         apiv1.TenantServiceInviteGetRequest{},
-			permissions: []*apiv1.MethodPermission{},
-			adminRole:   pointer.Pointer(apiv1.AdminRole_ADMIN_ROLE_EDITOR),
+			req:         v1.TenantServiceInviteGetRequest{},
+			permissions: []*v1.MethodPermission{},
+			adminRole:   pointer.Pointer(v1.AdminRole_ADMIN_ROLE_EDITOR),
 		},
-
+		// FIXME more admin roles defined in proto must be checked/implemented
+		{
+			name:        "ip get allowed for owner",
+			subject:     "john.doe@github",
+			method:      "/api.v1.IPService/Get",
+			req:         v1.IPServiceGetRequest{Project: "project-a"},
+			permissions: []*v1.MethodPermission{},
+			projectsAndTenants: &putil.ProjectsAndTenants{
+				ProjectRoles: map[string]v1.ProjectRole{
+					"project-a": v1.ProjectRole_PROJECT_ROLE_OWNER,
+				},
+			},
+			projectRoles: map[string]v1.ProjectRole{
+				"project-a": v1.ProjectRole_PROJECT_ROLE_OWNER,
+			},
+		},
+		{
+			name:        "ip get allowed for viewer",
+			subject:     "john.doe@github",
+			method:      "/api.v1.IPService/Get",
+			req:         v1.IPServiceGetRequest{Project: "project-a"},
+			permissions: []*v1.MethodPermission{},
+			projectsAndTenants: &putil.ProjectsAndTenants{
+				ProjectRoles: map[string]v1.ProjectRole{
+					"project-a": v1.ProjectRole_PROJECT_ROLE_VIEWER,
+				},
+			},
+			projectRoles: map[string]v1.ProjectRole{
+				"project-a": v1.ProjectRole_PROJECT_ROLE_VIEWER,
+			},
+		},
+		{
+			name:        "ip get not allowed, wrong project requested",
+			subject:     "john.doe@github",
+			method:      "/api.v1.IPService/Get",
+			req:         v1.IPServiceGetRequest{Project: "project-b"},
+			permissions: []*v1.MethodPermission{},
+			projectRoles: map[string]v1.ProjectRole{
+				"project-a": v1.ProjectRole_PROJECT_ROLE_VIEWER,
+			},
+			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.IPService/Get")),
+		},
+		{
+			name:        "ip allocate allowed for owner",
+			subject:     "john.doe@github",
+			method:      "/api.v1.IPService/Allocate",
+			req:         v1.IPServiceAllocateRequest{Project: "project-a"},
+			permissions: []*v1.MethodPermission{},
+			projectsAndTenants: &putil.ProjectsAndTenants{
+				ProjectRoles: map[string]v1.ProjectRole{
+					"project-a": v1.ProjectRole_PROJECT_ROLE_OWNER,
+				},
+			},
+			projectRoles: map[string]v1.ProjectRole{
+				"project-a": v1.ProjectRole_PROJECT_ROLE_OWNER,
+			},
+		},
+		{
+			name:        "ip allocate not allowed for viewer",
+			subject:     "john.doe@github",
+			method:      "/api.v1.IPService/Allocate",
+			req:         v1.IPServiceAllocateRequest{Project: "project-a"},
+			permissions: []*v1.MethodPermission{},
+			projectRoles: map[string]v1.ProjectRole{
+				"project-a": v1.ProjectRole_PROJECT_ROLE_VIEWER,
+			},
+			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.IPService/Allocate")),
+		},
 		{
 			name:    "version service allowed without token because it is public visibility",
 			subject: "",
 			method:  "/api.v1.VersionService/Get",
-			req:     apiv1.VersionServiceGetRequest{},
+			req:     v1.VersionServiceGetRequest{},
 			userJwtMutateFn: func(_ *testing.T, _ string) string {
 				return ""
 			},
@@ -159,7 +351,7 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 			name:    "health service allowed without token because it is public visibility",
 			subject: "",
 			method:  "/api.v1.HealthService/Get",
-			req:     apiv1.HealthServiceGetRequest{},
+			req:     v1.HealthServiceGetRequest{},
 			userJwtMutateFn: func(_ *testing.T, _ string) string {
 				return ""
 			},
@@ -168,30 +360,40 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 			name:    "token service has visibility self",
 			subject: "john.doe@github",
 			method:  "/api.v1.TokenService/Create",
-			req:     apiv1.TokenServiceCreateRequest{},
-			tenantRoles: map[string]apiv1.TenantRole{
-				"john.doe@github": apiv1.TenantRole_TENANT_ROLE_OWNER,
+			req:     v1.TokenServiceCreateRequest{},
+			projectsAndTenants: &putil.ProjectsAndTenants{
+				TenantRoles: map[string]v1.TenantRole{
+					"john.doe@github": v1.TenantRole_TENANT_ROLE_OWNER,
+				},
+			},
+			tenantRoles: map[string]v1.TenantRole{
+				"john.doe@github": v1.TenantRole_TENANT_ROLE_OWNER,
 			},
 		},
 		{
 			name:    "token service malformed token",
 			subject: "john.doe@github",
 			method:  "/api.v1.TokenService/Create",
-			req:     apiv1.TokenServiceCreateRequest{},
+			req:     v1.TokenServiceCreateRequest{},
 			userJwtMutateFn: func(_ *testing.T, jwt string) string {
 				return jwt + "foo"
 			},
-			tenantRoles: map[string]apiv1.TenantRole{
-				"john.doe@github": apiv1.TenantRole_TENANT_ROLE_OWNER,
+			tenantRoles: map[string]v1.TenantRole{
+				"john.doe@github": v1.TenantRole_TENANT_ROLE_OWNER,
 			},
-			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("access denied to:/api.v1.TokenService/Create")),
+			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid token")),
 		},
 		{
 			name:    "project list service has visibility self",
 			subject: "john.doe@github",
 			method:  "/api.v1.ProjectService/List",
-			req:     apiv1.ProjectServiceListRequest{},
-			permissions: []*apiv1.MethodPermission{
+			req:     v1.ProjectServiceListRequest{},
+			projectsAndTenants: &putil.ProjectsAndTenants{
+				TenantRoles: map[string]v1.TenantRole{
+					"john.doe@github": v1.TenantRole_TENANT_ROLE_OWNER,
+				},
+			},
+			permissions: []*v1.MethodPermission{
 				{
 					Subject: "a-project",
 					Methods: []string{"/api.v1.ClusterService/List"},
@@ -203,23 +405,36 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 			name:    "project list service has visibility self but token has not permissions",
 			subject: "john.doe@github",
 			method:  "/api.v1.ProjectService/List",
-			req:     apiv1.ProjectServiceListRequest{},
-			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("access denied to:/api.v1.ProjectService/List")),
+			req:     v1.ProjectServiceListRequest{},
+			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.ProjectService/List")),
 		},
 		{
 			name:    "project get service has not visibility self",
 			subject: "john.doe@github",
 			method:  "/api.v1.ProjectService/Get",
-			req:     apiv1.ProjectServiceGetRequest{Project: "a-project"},
-			permissions: []*apiv1.MethodPermission{
+			req:     v1.ProjectServiceGetRequest{Project: "a-project"},
+			permissions: []*v1.MethodPermission{
 				{
 					Subject: "a-project",
 					Methods: []string{"/api.v1.ClusterService/List"},
 				},
 			},
-			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("access denied to:/api.v1.ProjectService/Get")),
+			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.ProjectService/Get")),
+		},
+		{
+			name:      "access project with console token",
+			subject:   "john.doe@github",
+			method:    "/api.v1.ProjectService/Get",
+			req:       v1.ProjectServiceGetRequest{Project: "project-a"},
+			tokenType: v1.TokenType_TOKEN_TYPE_CONSOLE,
+			projectsAndTenants: &putil.ProjectsAndTenants{
+				ProjectRoles: map[string]v1.ProjectRole{
+					"project-a": v1.ProjectRole_PROJECT_ROLE_OWNER,
+				},
+			},
 		},
 	}
+
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
@@ -234,7 +449,12 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 				exp = *tt.expiration
 			}
 
-			jwt, tok, err := token.NewJWT(apiv1.TokenType_TOKEN_TYPE_CONSOLE, tt.subject, defaultIssuer, exp, key)
+			tokenType := v1.TokenType_TOKEN_TYPE_API
+			if tt.tokenType != v1.TokenType_TOKEN_TYPE_UNSPECIFIED {
+				tokenType = tt.tokenType
+			}
+
+			jwt, tok, err := token.NewJWT(tokenType, tt.subject, defaultIssuer, exp, key)
 			require.NoError(t, err)
 
 			if tt.userJwtMutateFn != nil {
@@ -255,14 +475,22 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 				CertCacheTime:  pointer.Pointer(0 * time.Second),
 				TokenStore:     tokenStore,
 				AllowedIssuers: []string{defaultIssuer},
+				AdminSubjects:  []string{"john.doe@github"},
 			})
 			require.NoError(t, err)
+
+			o.projectsAndTenantsGetter = func(ctx context.Context, userId string) (*putil.ProjectsAndTenants, error) {
+				if tt.projectsAndTenants == nil {
+					return &putil.ProjectsAndTenants{}, nil
+				}
+				return tt.projectsAndTenants, nil
+			}
 
 			jwtTokenFunc := func(_ string) string {
 				return "Bearer " + jwt
 			}
 
-			_, err = o.authorize(ctx, tt.method, jwtTokenFunc, tt.req)
+			_, err = o.decide(ctx, tt.method, jwtTokenFunc, tt.req)
 			if diff := cmp.Diff(tt.wantErr, err, testcommon.ErrorStringComparer()); diff != "" {
 				t.Error(err.Error())
 				t.Errorf("error diff (+got -want):\n %s", diff)

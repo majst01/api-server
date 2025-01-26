@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	apiv1 "github.com/metal-stack/api/go/api/v1"
+	v1 "github.com/metal-stack/api/go/api/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -27,7 +27,7 @@ type (
 	tokenContextKey struct{}
 )
 
-func NewJWT(tokenType apiv1.TokenType, subject, issuer string, expires time.Duration, secret crypto.PrivateKey) (string, *apiv1.Token, error) {
+func NewJWT(tokenType v1.TokenType, subject, issuer string, expires time.Duration, secret crypto.PrivateKey) (string, *v1.Token, error) {
 	if expires == 0 {
 		expires = DefaultExpiration
 	}
@@ -39,7 +39,7 @@ func NewJWT(tokenType apiv1.TokenType, subject, issuer string, expires time.Dura
 	expiresAt := issuedAt.Add(expires)
 	claims := &Claims{
 		// see overview of "registered" JWT claims as used by jwt-go here:
-		//   https://pkg.go.dev/github.com/golang-jwt/jwt/v4?utm_source=godoc#RegisteredClaims
+		//   https://pkg.go.dev/github.com/golang-jwt/jwt/v5?utm_source=godoc#RegisteredClaims
 		// see the semantics of the registered claims here:
 		//   https://en.wikipedia.org/wiki/JSON_Web_Token#Standard_fields
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -63,7 +63,7 @@ func NewJWT(tokenType apiv1.TokenType, subject, issuer string, expires time.Dura
 		return "", nil, fmt.Errorf("unable to sign ES512 JWT: %w", err)
 	}
 
-	token := &apiv1.Token{
+	token := &v1.Token{
 		Uuid:      claims.RegisteredClaims.ID,
 		UserId:    subject,
 		Expires:   timestamppb.New(expiresAt),
@@ -92,16 +92,16 @@ func ParseJWTToken(token string) (*Claims, error) {
 
 // ContextWithToken stores the token in the Context
 // Can later retrieved with TokenFromContext
-func ContextWithToken(ctx context.Context, token *apiv1.Token) context.Context {
+func ContextWithToken(ctx context.Context, token *v1.Token) context.Context {
 	return context.WithValue(ctx, tokenContextKey{}, token)
 }
 
 // TokenFromContext retrieves the token and ok from the context
 // if previously stored by calling ContextWithToken.
-func TokenFromContext(ctx context.Context) (*apiv1.Token, bool) {
+func TokenFromContext(ctx context.Context) (*v1.Token, bool) {
 	value := ctx.Value(tokenContextKey{})
 
-	token, ok := value.(*apiv1.Token)
+	token, ok := value.(*v1.Token)
 
 	return token, ok
 }

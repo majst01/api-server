@@ -1,49 +1,30 @@
-package api.v1.metalstack.io.authz
+package api.v1.metalstack.io.authorization
 
 import rego.v1
 
 default decision := {"allow": false}
 
+# METADATA
+# description: Prevent API access if permissions are not sufficient
+# entrypoint: true
 decision := {"allow": false, "reason": reason} if {
 	# preconditions to avoid multiple rule matches
-	is_token_valid
 	not is_admin
 	not service_allowed
 	not is_public_service
-	not is_private_service
 	not is_self_service
 
 	# actual implementation
 	not is_method_allowed
-	reason := sprintf("method denied or unknown:%s", [input.method])
-}
-
-decision := {"allow": false, "reason": reason} if {
-	not is_admin
-	not is_token_valid
-	not is_public_service
-	not is_private_service
-	not is_self_service
-	reason := "token is not valid"
-}
-
-decision := {"allow": false, "reason": reason} if {
-	not is_admin
-	not service_allowed
-	reason := sprintf("access to %s not allowed", input.method)
+	reason := sprintf("method denied or unknown: %s", [input.method])
 }
 
 decision := {"allow": true} if {
 	service_allowed
-	is_token_valid
 }
 
 decision := {"allow": true} if {
 	is_public_service
-}
-
-decision := {"allow": false} if {
-	is_private_service
 }
 
 decision := {"allow": false, "reason": reason} if {
@@ -56,7 +37,8 @@ decision := {"allow": true} if {
 }
 
 is_method_allowed if {
-	print("input method", input.method, "allowed methods", data.methods)
+	# this can be used for debugging:
+	# print("input method", input.method, "allowed methods", data.methods)
 	data.methods[input.method] == true
 }
 
@@ -75,13 +57,12 @@ service_allowed if {
 }
 
 # Requests to methods with visibility self
-# jwt token must be valid
 # endpoint is one of the visibility.Self methods
 service_allowed if {
 	is_self_service
 
 	not input.permissions # if no permissions given (that means the key does not exist at all!), we only respect roles
-	input.tenant_roles[token.payload.sub] == "TENANT_ROLE_OWNER" # only owner role may visit self
+	input.tenant_roles[input.token.user_id] == "TENANT_ROLE_OWNER" # only owner role may visit self
 }
 
 service_allowed if {
@@ -95,10 +76,6 @@ service_allowed if {
 
 is_public_service if {
 	data.visibility.public[input.method]
-}
-
-is_private_service if {
-	data.visibility.private[input.method]
 }
 
 is_self_service if {
@@ -133,20 +110,4 @@ is_admin if {
 is_admin if {
 	input.admin_role == "ADMIN_ROLE_VIEWER"
 	input.method in data.roles.tenant.TENANT_ROLE_VIEWER
-}
-
-# Token validation
-
-is_token_valid if {
-	token.valid
-	now := time.now_ns() / 1000000000
-	token.payload.nbf <= now
-	now < token.payload.exp
-}
-
-token := {"valid": valid, "payload": payload} if {
-	valid := io.jwt.verify_es512(input.token, input.jwks)
-	[_, payload, _] := io.jwt.decode(input.token)
-	payload.iss in data.allowed_issuers
-	print("valid", valid, "payload", payload, "jwks", input.jwks)
 }

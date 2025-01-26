@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"time"
 
-	apiv1 "github.com/metal-stack/api/go/api/v1"
+	v1 "github.com/metal-stack/api/go/api/v1"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -17,11 +17,15 @@ const (
 	prefix    = "tokenstore_"
 )
 
+var (
+	ErrTokenNotFound = redis.Nil
+)
+
 type TokenStore interface {
-	Set(ctx context.Context, token *apiv1.Token) error
-	Get(ctx context.Context, userid, tokenid string) (*apiv1.Token, error)
-	List(ctx context.Context, userid string) ([]*apiv1.Token, error)
-	AdminList(ctx context.Context) ([]*apiv1.Token, error)
+	Set(ctx context.Context, token *v1.Token) error
+	Get(ctx context.Context, userid, tokenid string) (*v1.Token, error)
+	List(ctx context.Context, userid string) ([]*v1.Token, error)
+	AdminList(ctx context.Context) ([]*v1.Token, error)
 	Revoke(ctx context.Context, userid, tokenid string) error
 	Migrate(ctx context.Context, log *slog.Logger) error
 }
@@ -44,7 +48,7 @@ func NewRedisStore(client *redis.Client) TokenStore {
 	}
 }
 
-func (r *redisStore) Set(ctx context.Context, token *apiv1.Token) error {
+func (r *redisStore) Set(ctx context.Context, token *v1.Token) error {
 	encoded, err := json.Marshal(toInternal(token))
 	if err != nil {
 		return fmt.Errorf("unable to encode token: %w", err)
@@ -58,7 +62,7 @@ func (r *redisStore) Set(ctx context.Context, token *apiv1.Token) error {
 	return nil
 }
 
-func (r *redisStore) Get(ctx context.Context, userid, tokenid string) (*apiv1.Token, error) {
+func (r *redisStore) Get(ctx context.Context, userid, tokenid string) (*v1.Token, error) {
 	encoded, err := r.client.Get(ctx, key(userid, tokenid)).Result()
 	if err != nil {
 		return nil, err
@@ -67,18 +71,15 @@ func (r *redisStore) Get(ctx context.Context, userid, tokenid string) (*apiv1.To
 	var t token
 	err = json.Unmarshal([]byte(encoded), &t)
 	if err != nil {
-		t, err = compat([]byte(encoded))
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	return toExternal(&t), nil
 }
 
-func (r *redisStore) List(ctx context.Context, userid string) ([]*apiv1.Token, error) {
+func (r *redisStore) List(ctx context.Context, userid string) ([]*v1.Token, error) {
 	var (
-		res  []*apiv1.Token
+		res  []*v1.Token
 		iter = r.client.Scan(ctx, 0, match(userid), 0).Iterator()
 	)
 
@@ -91,10 +92,7 @@ func (r *redisStore) List(ctx context.Context, userid string) ([]*apiv1.Token, e
 		var t token
 		err = json.Unmarshal([]byte(encoded), &t)
 		if err != nil {
-			t, err = compat([]byte(encoded))
-			if err != nil {
-				return nil, err
-			}
+			return nil, err
 		}
 
 		res = append(res, toExternal(&t))
@@ -106,9 +104,9 @@ func (r *redisStore) List(ctx context.Context, userid string) ([]*apiv1.Token, e
 	return res, nil
 }
 
-func (r *redisStore) AdminList(ctx context.Context) ([]*apiv1.Token, error) {
+func (r *redisStore) AdminList(ctx context.Context) ([]*v1.Token, error) {
 	var (
-		res  []*apiv1.Token
+		res  []*v1.Token
 		iter = r.client.Scan(ctx, 0, prefix+"*", 0).Iterator()
 	)
 
@@ -121,10 +119,7 @@ func (r *redisStore) AdminList(ctx context.Context) ([]*apiv1.Token, error) {
 		var t token
 		err = json.Unmarshal([]byte(encoded), &t)
 		if err != nil {
-			t, err = compat([]byte(encoded))
-			if err != nil {
-				return nil, err
-			}
+			return nil, err
 		}
 
 		res = append(res, toExternal(&t))
@@ -141,7 +136,6 @@ func (r *redisStore) Revoke(ctx context.Context, userid, tokenid string) error {
 	return err
 }
 
-// TODO: this can be removed after migration, the migration method can be kept though for later purposes
 func (r *redisStore) Migrate(ctx context.Context, log *slog.Logger) error {
 	tokens, err := r.AdminList(ctx)
 	if err != nil {
@@ -150,16 +144,8 @@ func (r *redisStore) Migrate(ctx context.Context, log *slog.Logger) error {
 
 	var errs []error
 
-	for _, t := range tokens {
-
-		err = r.Set(ctx, t)
-		if err != nil {
-			log.Error("error migrating token", "id", t.Uuid, "error", err)
-			errs = append(errs, err)
-			continue
-		}
-
-		log.Info("migrated token", "id", t.Uuid)
+	for range tokens {
+		// possible future migrations can go here
 	}
 
 	if len(errs) > 0 {

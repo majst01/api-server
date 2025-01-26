@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/metal-stack/api-server/pkg/certs"
+	putil "github.com/metal-stack/api-server/pkg/project"
 	tokenservice "github.com/metal-stack/api-server/pkg/service/token"
 	"github.com/metal-stack/api-server/pkg/token"
-	apiv1 "github.com/metal-stack/api/go/api/v1"
+	v1 "github.com/metal-stack/api/go/api/v1"
 	"github.com/metal-stack/metal-lib/pkg/pointer"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
@@ -51,9 +51,19 @@ func Test_opa_cert_rotation(t *testing.T) {
 				CertStore:      certStore,
 				CertCacheTime:  pointer.Pointer(0 * time.Second),
 				TokenStore:     tokenStore,
+				MasterClient:   nil,
 				AllowedIssuers: []string{"integration"},
 			})
 			require.NoError(t, err)
+
+			o.projectsAndTenantsGetter = func(ctx context.Context, userId string) (*putil.ProjectsAndTenants, error) {
+				return &putil.ProjectsAndTenants{
+					ProjectRoles: map[string]v1.ProjectRole{
+						"test-project": v1.ProjectRole_PROJECT_ROLE_VIEWER,
+					},
+				}, nil
+			}
+
 			return o
 		}()
 
@@ -63,9 +73,11 @@ func Test_opa_cert_rotation(t *testing.T) {
 				Log:           log,
 				CertStore:     certStore,
 				TokenStore:    tokenStore,
+				MasterClient:  nil,
 				AdminSubjects: []string{},
 				Issuer:        "integration",
 			})
+
 			return s
 		}()
 
@@ -194,15 +206,7 @@ func Test_opa_cert_rotation(t *testing.T) {
 }
 
 func createNewConsoleToken(t *testing.T, ctx context.Context, service tokenservice.TokenService) string {
-	resp, err := service.CreateConsoleTokenWithoutPermissionCheck(ctx, "test-user", connect.NewRequest(&apiv1.TokenServiceCreateRequest{
-		Description: "integration",
-		Permissions: []*apiv1.MethodPermission{
-			{
-				Subject: "test-project",
-				Methods: []string{"/api.v1.ClusterService/Get"},
-			},
-		},
-	}))
+	resp, err := service.CreateConsoleTokenWithoutPermissionCheck(ctx, "test-user", nil)
 	require.NoError(t, err)
 
 	return resp.Msg.Secret
@@ -216,24 +220,19 @@ func expectTokenWorks(t *testing.T, ctx context.Context, opa *opa, bearer string
 func expectTokenExpired(t *testing.T, ctx context.Context, opa *opa, bearer string) {
 	err := checkToken(ctx, opa, bearer)
 	require.Error(t, err)
-	require.ErrorContains(t, err, "unauthenticated: token was revoked or has expired")
+	require.ErrorContains(t, err, "unauthenticated: token has expired")
 }
 
 func checkToken(ctx context.Context, opa *opa, bearer string) error {
+	jwtTokenFunc := func(_ string) string {
+		return "Bearer " + bearer
+	}
 
-	// FIXME implement once MachineService is present
+	_, err := opa.decide(ctx, "/api.v1.IPService/Get", jwtTokenFunc, v1.IPServiceGetRequest{
+		Project: "test-project",
+	})
 
-	// jwtTokenFunc := func(_ string) string {
-	// 	return "Bearer " + bearer
-	// }
-
-	// _, err := opa.authorize(ctx, "/api.v1.ClusterService/Get", jwtTokenFunc, apiv1.ClusterServiceGetRequest{
-	// 	Project: "test-project",
-	// })
-
-	// return err
-
-	return nil
+	return err
 }
 
 func expectCertStore(t *testing.T, ctx context.Context, c certs.CertStore, publicKeyAmount int) {

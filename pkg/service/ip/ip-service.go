@@ -125,7 +125,7 @@ func (i *ipServiceServer) Allocate(ctx context.Context, rq *connect.Request[apiv
 	req := rq.Msg
 
 	ipType := models.V1IPBaseTypeEphemeral
-	if req.Static {
+	if req.Type != apiv1.IPType_IP_TYPE_UNSPECIFIED.Enum() {
 		ipType = models.V1IPAllocateRequestTypeStatic
 	}
 
@@ -156,22 +156,29 @@ func (i *ipServiceServer) Update(ctx context.Context, rq *connect.Request[apiv1.
 	req := rq.Msg
 
 	var t string
-	switch req.Ip.Type {
-	case apiv1.IPType_IP_TYPE_EPHEMERAL:
+	switch req.Type {
+	case apiv1.IPType_IP_TYPE_EPHEMERAL.Enum():
 		t = models.V1IPBaseTypeEphemeral
-	case apiv1.IPType_IP_TYPE_STATIC:
+	case apiv1.IPType_IP_TYPE_STATIC.Enum():
 		t = models.V1IPBaseTypeStatic
-	case apiv1.IPType_IP_TYPE_UNSPECIFIED:
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("ip type cannot be unspecified: %s", req.Ip.Type))
+	case apiv1.IPType_IP_TYPE_UNSPECIFIED.Enum():
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("ip type cannot be unspecified: %s", req.Type))
 	}
 
-	updatedIP, err := i.m.IP().UpdateIP(ip.NewUpdateIPParams().WithBody(&models.V1IPUpdateRequest{
-		Description: req.Ip.Description,
-		Ipaddress:   &req.Ip.Ip,
-		Name:        req.Ip.Name,
-		Tags:        req.Ip.Tags,
-		Type:        &t,
-	}), nil)
+	ipur := models.V1IPUpdateRequest{
+		Tags: req.Tags,
+	}
+	if req.Description != nil {
+		ipur.Description = *req.Description
+	}
+	if req.Name != nil {
+		ipur.Name = *req.Name
+	}
+	if req.Type != nil {
+		ipur.Type = &t
+	}
+
+	updatedIP, err := i.m.IP().UpdateIP(ip.NewUpdateIPParams().WithBody(&ipur), nil)
 	if err != nil {
 		return nil, err
 	}
