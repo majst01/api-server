@@ -38,7 +38,11 @@ func (i *ipServiceServer) Get(ctx context.Context, rq *connect.Request[apiv1.IPS
 	i.log.Debug("get", "ip", rq)
 	req := rq.Msg
 
-	i.m.IP().FindIP(ip.NewFindIPParamsWithContext(ctx).WithID(req.Uuid), nil)
+	// FIXME: use get here
+	_, err := i.m.IP().FindIP(ip.NewFindIPParamsWithContext(ctx).WithID(req.Uuid), nil)
+	if err != nil {
+		return nil, err
+	}
 	ip, err := i.get(req.Uuid)
 	if err != nil {
 		return nil, err
