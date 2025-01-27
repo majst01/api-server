@@ -14,6 +14,7 @@ import (
 	"github.com/metal-stack/v"
 	"github.com/redis/go-redis/v9"
 	"github.com/urfave/cli/v2"
+	r "gopkg.in/rethinkdb/rethinkdb-go.v6"
 )
 
 var serveCmd = &cli.Command{
@@ -32,6 +33,11 @@ var serveCmd = &cli.Command{
 		masterdataApiCAPathFlag,
 		masterdataApiCertPathFlag,
 		masterdataApiCertKeyPathFlag,
+		rethinkdbAddressesFlag,
+		rethinkdbDBFlag,
+		rethinkdbDBNameFlag,
+		rethinkdbPasswordFlag,
+		rethinkdbUserFlag,
 		auditingUrlFlag,
 		auditingApiKeyFlag,
 		auditingEnabledFlag,
@@ -59,6 +65,12 @@ var serveCmd = &cli.Command{
 		redisAddr := ctx.String(redisAddrFlag.Name)
 		stage := ctx.String(stageFlag.Name)
 
+		rethinkDBSession, err := createRedisDBClient(ctx)
+		if err != nil {
+			log.Error("unable to create rethinkdb client", "error", err)
+			os.Exit(1)
+		}
+
 		c := config{
 			HttpServerEndpoint:                  ctx.String(httpServerEndpointFlag.Name),
 			MetricsServerEndpoint:               ctx.String(metricServerEndpointFlag.Name),
@@ -73,6 +85,8 @@ var serveCmd = &cli.Command{
 			AdminOrgs:                           ctx.StringSlice(adminOrgsFlag.Name),
 			MaxRequestsPerMinuteToken:           ctx.Int(maxRequestsPerMinuteFlag.Name),
 			MaxRequestsPerMinuteUnauthenticated: ctx.Int(maxRequestsPerMinuteUnauthenticatedFlag.Name),
+			RethinkDB:                           ctx.String(rethinkdbDBFlag.Name),
+			RethinkDBSession:                    rethinkDBSession,
 		}
 
 		log.Info("running api-server", "version", v.V, "level", level, "http endpoint", c.HttpServerEndpoint)
@@ -114,6 +128,18 @@ func retryConnectMasterdataClient(cli *cli.Context, logger *slog.Logger) mdm.Cli
 	logger.Info("masterdata client initialized")
 
 	return client
+}
+
+func createRedisDBClient(cli *cli.Context) (*r.Session, error) {
+	session, err := r.Connect(r.ConnectOpts{
+		Addresses: cli.StringSlice("db-addr"),
+		Database:  cli.String("db-name"),
+		Username:  cli.String("db-user"),
+		Password:  cli.String("db-password"),
+		MaxIdle:   10,
+		MaxOpen:   20,
+	})
+	return session, err
 }
 
 // createAuditingClient creates a new auditing client

@@ -8,9 +8,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/metal-stack/api-server/pkg/db/generic"
+	"github.com/metal-stack/api-server/pkg/db/metal"
 	apiv1 "github.com/metal-stack/api/go/api/v1"
 	"github.com/metal-stack/api/go/api/v1/apiv1connect"
-	metalgo "github.com/metal-stack/metal-go"
 	"github.com/metal-stack/metal-go/api/client/ip"
 	"github.com/metal-stack/metal-go/api/models"
 	"github.com/metal-stack/metal-lib/pkg/pointer"
@@ -19,18 +20,18 @@ import (
 )
 
 type Config struct {
-	Log         *slog.Logger
-	MetalClient metalgo.Client
+	Log       *slog.Logger
+	Datastore *generic.Datastore
 }
 type ipServiceServer struct {
 	log *slog.Logger
-	m   metalgo.Client
+	ds  *generic.Datastore
 }
 
 func New(c Config) apiv1connect.IPServiceHandler {
 	return &ipServiceServer{
 		log: c.Log.WithGroup("ipService"),
-		m:   c.MetalClient,
+		ds:  c.Datastore,
 	}
 }
 
@@ -38,34 +39,14 @@ func (i *ipServiceServer) Get(ctx context.Context, rq *connect.Request[apiv1.IPS
 	i.log.Debug("get", "ip", rq)
 	req := rq.Msg
 
-	// FIXME: use get here
-	_, err := i.m.IP().FindIP(ip.NewFindIPParamsWithContext(ctx).WithID(req.Uuid), nil)
-	if err != nil {
-		return nil, err
-	}
-	ip, err := i.get(req.Uuid)
-	if err != nil {
+	resp, err := i.ds.IP().Get(ctx, req.Ip)
+	if err != nil { // TODO notfound
 		return nil, err
 	}
 
 	return connect.NewResponse(&apiv1.IPServiceGetResponse{
-		Ip: ip,
+		Ip: convert(resp),
 	}), nil
-}
-
-func (i *ipServiceServer) get(uuid string) (*apiv1.IP, error) {
-	resp, err := i.m.IP().FindIPs(ip.NewFindIPsParams().WithBody(&models.V1IPFindRequest{
-		Allocationuuid: uuid,
-	}), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(resp.Payload) != 1 {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ip not found: %s", uuid))
-	}
-
-	return fromMetalIP(resp.Payload[0]), nil
 }
 
 // List implements v1.IPServiceServer
@@ -95,7 +76,7 @@ func (i *ipServiceServer) List(ctx context.Context, rq *connect.Request[apiv1.IP
 			continue
 		}
 
-		res = append(res, fromMetalIP(ipElem))
+		res = append(res, convert(ipElem))
 	}
 
 	return connect.NewResponse(&apiv1.IPServiceListResponse{
@@ -108,18 +89,17 @@ func (i *ipServiceServer) Delete(ctx context.Context, rq *connect.Request[apiv1.
 	i.log.Debug("delete", "ip", rq)
 	req := rq.Msg
 
-	iptodelete, err := i.get(req.Uuid)
-	if err != nil {
+	resp, err := i.ds.IP().Get(ctx, req.Ip)
+	if err != nil { // TODO notfound
 		return nil, err
 	}
 
-	resp, err := i.m.IP().FreeIP(ip.NewFreeIPParams().WithID(iptodelete.Ip), nil)
-	if err != nil {
+	err = i.ds.IP().Delete(ctx, &metal.IP{IPAddress: req.Ip})
+	if err != nil { // TODO notfound
 		return nil, err
 	}
-
 	return connect.NewResponse(&apiv1.IPServiceDeleteResponse{
-		Ip: fromMetalIP(resp.Payload),
+		Ip: convert(resp),
 	}), nil
 }
 
@@ -150,7 +130,7 @@ func (i *ipServiceServer) Allocate(ctx context.Context, rq *connect.Request[apiv
 		return nil, err
 	}
 
-	return connect.NewResponse(&apiv1.IPServiceAllocateResponse{Ip: fromMetalIP(ipResp.Payload)}), nil
+	return connect.NewResponse(&apiv1.IPServiceAllocateResponse{Ip: convert(ipResp.Payload)}), nil
 }
 
 // Static implements v1.IPServiceServer
@@ -159,61 +139,63 @@ func (i *ipServiceServer) Update(ctx context.Context, rq *connect.Request[apiv1.
 
 	req := rq.Msg
 
-	var t string
+	var t metal.IPType
 	switch req.Type {
 	case apiv1.IPType_IP_TYPE_EPHEMERAL.Enum():
-		t = models.V1IPBaseTypeEphemeral
+		t = metal.Ephemeral
 	case apiv1.IPType_IP_TYPE_STATIC.Enum():
-		t = models.V1IPBaseTypeStatic
+		t = metal.Static
 	case apiv1.IPType_IP_TYPE_UNSPECIFIED.Enum():
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("ip type cannot be unspecified: %s", req.Type))
 	}
 
-	ipur := models.V1IPUpdateRequest{
-		Tags: req.Tags,
-	}
-	if req.Description != nil {
-		ipur.Description = *req.Description
-	}
-	if req.Name != nil {
-		ipur.Name = *req.Name
-	}
-	if req.Type != nil {
-		ipur.Type = &t
+	old, err := i.ds.IP().Get(ctx, req.Ip)
+	if err != nil { // TODO not found
+		return nil, err
 	}
 
-	updatedIP, err := i.m.IP().UpdateIP(ip.NewUpdateIPParams().WithBody(&ipur), nil)
+	newIP := *old
+
+	if req.Description != nil {
+		newIP.Description = *req.Description
+	}
+	if req.Name != nil {
+		newIP.Name = *req.Name
+	}
+	if req.Type != nil {
+		newIP.Type = t
+	}
+	newIP.Tags = req.Tags
+
+	err = i.ds.IP().Update(ctx, &newIP, old)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&apiv1.IPServiceUpdateResponse{Ip: fromMetalIP(updatedIP.Payload)}), nil
+	return connect.NewResponse(&apiv1.IPServiceUpdateResponse{Ip: convert(&newIP)}), nil
 }
 
-func fromMetalIP(ip *models.V1IPResponse) *apiv1.IP {
-	var t apiv1.IPType
-	if ip.Type != nil {
-		switch *ip.Type {
-		case models.V1IPBaseTypeEphemeral:
-			t = apiv1.IPType_IP_TYPE_EPHEMERAL
-		case models.V1IPAllocateRequestTypeStatic:
-			t = apiv1.IPType_IP_TYPE_STATIC
-		default:
-			t = apiv1.IPType_IP_TYPE_UNSPECIFIED
-		}
+func convert(resp *metal.IP) *apiv1.IP {
+	t := apiv1.IPType_IP_TYPE_UNSPECIFIED
+	switch resp.Type {
+	case metal.Ephemeral:
+		t = apiv1.IPType_IP_TYPE_EPHEMERAL
+	case metal.Static:
+		t = apiv1.IPType_IP_TYPE_STATIC
 	}
 
-	return &apiv1.IP{
-		Uuid:        pointer.SafeDeref(ip.Allocationuuid),
-		Ip:          pointer.SafeDeref(ip.Ipaddress),
-		Name:        ip.Name,
-		Description: ip.Description,
-		Network:     pointer.SafeDeref(ip.Networkid),
-		Project:     pointer.SafeDeref(ip.Projectid),
+	ip := &apiv1.IP{
+		Ip:          resp.IPAddress,
+		Uuid:        resp.AllocationUUID,
+		Name:        resp.Name,
+		Description: resp.Description,
+		Network:     resp.NetworkID,
+		Project:     resp.ProjectID,
 		Type:        t,
-		Tags:        ip.Tags,
-		CreatedAt:   timestamppb.New(time.Time(ip.Created)),
-		UpdatedAt:   timestamppb.New(time.Time(ip.Changed)),
+		Tags:        resp.Tags,
+		CreatedAt:   timestamppb.New(time.Time(resp.Created)),
+		UpdatedAt:   timestamppb.New(time.Time(resp.Changed)),
 		DeletedAt:   &timestamppb.Timestamp{},
 	}
+	return ip
 }

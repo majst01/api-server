@@ -77,6 +77,31 @@ var (
 		Value: "certs/client-key.pem",
 		Usage: "masterdata-api certificate key path",
 	}
+	rethinkdbDBFlag = &cli.StringFlag{
+		Name:  "rethinkdb-db",
+		Value: "rethinkdb",
+		Usage: "rethinkdb database to connect to",
+	}
+	rethinkdbAddressesFlag = &cli.StringSliceFlag{
+		Name:  "rethinkdb-addresses",
+		Value: &cli.StringSlice{},
+		Usage: "rethinkdb addresses without http prefix",
+	}
+	rethinkdbDBNameFlag = &cli.StringFlag{
+		Name:  "rethinkdb-dbname",
+		Value: "metalapi",
+		Usage: "rethinkdb database name",
+	}
+	rethinkdbUserFlag = &cli.StringFlag{
+		Name:  "rethinkdb-user",
+		Value: "",
+		Usage: "rethinkdb username to connect",
+	}
+	rethinkdbPasswordFlag = &cli.StringFlag{
+		Name:  "rethinkdb-password",
+		Value: "",
+		Usage: "rethinkdb password to connect",
+	}
 	auditingUrlFlag = &cli.StringFlag{
 		Name:  "auditing-url",
 		Value: "http://localhost:7700",

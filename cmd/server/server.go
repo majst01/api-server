@@ -21,12 +21,14 @@ import (
 	"github.com/rs/cors"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
+	r "gopkg.in/rethinkdb/rethinkdb-go.v6"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/metal-stack/api-server/pkg/auth"
 	"github.com/metal-stack/api-server/pkg/certs"
+	"github.com/metal-stack/api-server/pkg/db/generic"
 	"github.com/metal-stack/api-server/pkg/invite"
 	ratelimiter "github.com/metal-stack/api-server/pkg/rate-limiter"
 	"github.com/metal-stack/api-server/pkg/service/health"
@@ -58,6 +60,8 @@ type config struct {
 	AdminOrgs                           []string
 	MaxRequestsPerMinuteToken           int
 	MaxRequestsPerMinuteUnauthenticated int
+	RethinkDBSession                    *r.Session
+	RethinkDB                           string
 }
 type server struct {
 	c   config
@@ -152,7 +156,9 @@ func (s *server) Run() error {
 		MasterClient: s.c.MasterClient,
 		InviteStore:  inviteStore,
 	})
-	ipService := ip.New(ip.Config{Log: s.log})
+
+	ds := generic.New(s.log, s.c.RethinkDB, s.c.RethinkDBSession)
+	ipService := ip.New(ip.Config{Log: s.log, Datastore: ds})
 	tokenService := token.New(token.Config{
 		Log:           s.log,
 		CertStore:     certStore,
