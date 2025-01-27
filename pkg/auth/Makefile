@@ -5,7 +5,6 @@ _regal:
 		-w /workspace \
 		ghcr.io/styrainc/regal:latest \
 		lint \
-			--disable test-outside-test-package \
 			--disable directory-package-mismatch \
 			$(POLICIES_PATH)
 
