@@ -489,29 +489,7 @@ func Test_validateTokenCreate(t *testing.T) {
 					{
 						Subject: "ae8d2493-41ec-4efd-bbb4-81085b20b6fe",
 						Methods: []string{
-							"/api.v1.ClusterService/Get",
-						},
-					},
-				},
-				Expires: inOneHour,
-			},
-			adminSubjects: []string{},
-			wantErr:       false,
-		},
-		{
-			name: "simple token with no permissions but tenant role (old naming scheme)",
-			token: &v1.Token{
-				TenantRoles: map[string]v1.TenantRole{
-					"john@github": v1.TenantRole_TENANT_ROLE_OWNER,
-				},
-			},
-			req: &v1.TokenServiceCreateRequest{
-				Description: "i want to update payments",
-				Permissions: []*v1.MethodPermission{
-					{
-						Subject: "john@github",
-						Methods: []string{
-							"/api.v1.PaymentService/CreateOrUpdateCustomer",
+							"/api.v1.IPService/Get",
 						},
 					},
 				},
@@ -527,7 +505,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.ClusterService/Get"},
+						Methods: []string{"/api.v1.IPService/Get"},
 					},
 				},
 			},
@@ -536,7 +514,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.ClusterService/Get"},
+						Methods: []string{"/api.v1.IPService/Get"},
 					},
 				},
 				Expires: inOneHour,
@@ -550,7 +528,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.ClusterService/Get"},
+						Methods: []string{"/api.v1.IPService/Get"},
 					},
 				},
 			},
@@ -574,7 +552,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.ClusterService/Get"},
+						Methods: []string{"/api.v1.IPService/Get"},
 					},
 				},
 			},
@@ -583,7 +561,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "cde",
-						Methods: []string{"/api.v1.ClusterService/Get"},
+						Methods: []string{"/api.v1.IPService/Get"},
 					},
 				},
 				Expires: inOneHour,
@@ -598,7 +576,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.ClusterService/Get"},
+						Methods: []string{"/api.v1.IPService/Get"},
 					},
 				},
 			},
@@ -607,14 +585,14 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.ClusterService/List"},
+						Methods: []string{"/api.v1.IPService/List"},
 					},
 				},
 				Expires: inOneHour,
 			},
 			adminSubjects:  []string{},
 			wantErr:        true,
-			wantErrMessage: "requested method:\"/api.v1.ClusterService/List\" is not allowed for subject:\"abc\"",
+			wantErrMessage: "requested method:\"/api.v1.IPService/List\" is not allowed for subject:\"abc\"",
 		},
 		{
 			name: "simple token with one project and permission, wrong messages given",
@@ -623,9 +601,9 @@ func Test_validateTokenCreate(t *testing.T) {
 					{
 						Subject: "abc",
 						Methods: []string{
-							"/api.v1.ClusterService/Create",
-							"/api.v1.ClusterService/Get",
-							"/api.v1.ClusterService/Delete",
+							"/api.v1.IPService/Create",
+							"/api.v1.IPService/Get",
+							"/api.v1.IPService/Delete",
 						},
 					},
 				},
@@ -636,8 +614,8 @@ func Test_validateTokenCreate(t *testing.T) {
 					{
 						Subject: "abc",
 						Methods: []string{
-							"/api.v1.ClusterService/Get",
-							"/api.v1.ClusterService/List",
+							"/api.v1.IPService/Get",
+							"/api.v1.IPService/List",
 						},
 					},
 				},
@@ -645,7 +623,7 @@ func Test_validateTokenCreate(t *testing.T) {
 			},
 			adminSubjects:  []string{},
 			wantErr:        true,
-			wantErrMessage: "requested method:\"/api.v1.ClusterService/List\" is not allowed for subject:\"abc\"",
+			wantErrMessage: "requested method:\"/api.v1.IPService/List\" is not allowed for subject:\"abc\"",
 		},
 		{
 			name: "expiration too long",
@@ -672,7 +650,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.ClusterService/Get"},
+						Methods: []string{"/api.v1.IPService/Get"},
 					},
 				},
 			},
@@ -681,7 +659,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.ClusterService/Get"},
+						Methods: []string{"/api.v1.IPService/Get"},
 					},
 				},
 				TenantRoles: map[string]v1.TenantRole{
@@ -699,7 +677,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.ClusterService/Get"},
+						Methods: []string{"/api.v1.IPService/Get"},
 					},
 				},
 				TenantRoles: map[string]v1.TenantRole{
@@ -711,7 +689,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.ClusterService/Get"},
+						Methods: []string{"/api.v1.IPService/Get"},
 					},
 				},
 				TenantRoles: map[string]v1.TenantRole{
@@ -729,7 +707,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.ClusterService/Get"},
+						Methods: []string{"/api.v1.IPService/Get"},
 					},
 				},
 				TenantRoles: map[string]v1.TenantRole{
@@ -741,7 +719,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.ClusterService/Get"},
+						Methods: []string{"/api.v1.IPService/Get"},
 					},
 				},
 				TenantRoles: map[string]v1.TenantRole{

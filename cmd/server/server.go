@@ -157,7 +157,10 @@ func (s *server) Run() error {
 		InviteStore:  inviteStore,
 	})
 
-	ds := generic.New(s.log, s.c.RethinkDB, s.c.RethinkDBSession)
+	ds, err := generic.New(s.log, s.c.RethinkDB, s.c.RethinkDBSession)
+	if err != nil {
+		return err
+	}
 	ipService := ip.New(ip.Config{Log: s.log, Datastore: ds})
 	tokenService := token.New(token.Config{
 		Log:           s.log,

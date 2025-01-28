@@ -76,23 +76,23 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 		// {
 		// 	name:    "cluster get not allowed, no token",
 		// 	subject: "john.doe@github",
-		// 	method:  "/api.v1.ClusterService/Get",
+		// 	method:  "/api.v1.IPService/Get",
 		// 	req:     v1.ClusterServiceGetRequest{},
 		// 	userJwtMutateFn: func(t *testing.T, jwt string) string {
 		// 		return ""
 		// 	},
-		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.ClusterService/Get")),
+		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.IPService/Get")),
 		// },
 		// FIXME: these tests did not work before because error was suppressed, fix them :(
 		// {
 		// 	name:    "cluster get not allowed, token secret malicious",
 		// 	subject: "john.doe@github",
-		// 	method:  "/api.v1.ClusterService/Get",
+		// 	method:  "/api.v1.IPService/Get",
 		// 	req:     v1.ClusterServiceGetRequest{},
 		// 	permissions: []*v1.MethodPermission{
 		// 		{
 		// 			Subject: "",
-		// 			Methods: []string{"/api.v1.ClusterService/Get"},
+		// 			Methods: []string{"/api.v1.IPService/Get"},
 		// 		},
 		// 	},
 		// 	userJwtMutateFn: func(t *testing.T, _ string) string {
@@ -105,8 +105,8 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 		// {
 		// 	name: "cluster get not allowed, token secret malicious",
 		// 	args: args{
-		// 		token:      mustToken([]*v1.MethodPermission{{Subject: "", Methods: []string{"/api.v1.ClusterService/Get"}}}, nil, nil, &maliciousSigningKey),
-		// 		methodName: "/api.v1.ClusterService/Get",
+		// 		token:      mustToken([]*v1.MethodPermission{{Subject: "", Methods: []string{"/api.v1.IPService/Get"}}}, nil, nil, &maliciousSigningKey),
+		// 		methodName: "/api.v1.IPService/Get",
 		// 		req:        v1.ClusterServiceGetRequest{},
 		// 	},
 		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("access denied:token is not valid")),
@@ -114,13 +114,13 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 		// {
 		// 	name:       "cluster get not allowed, token already expired",
 		// 	subject:    "john.doe@github",
-		// 	method:     "/api.v1.ClusterService/Get",
+		// 	method:     "/api.v1.IPService/Get",
 		// 	req:        v1.ClusterServiceGetRequest{},
 		// 	expiration: &expired,
 		// 	permissions: []*v1.MethodPermission{
 		// 		{
 		// 			Subject: "john.doe@github",
-		// 			Methods: []string{"/api.v1.ClusterService/Get"},
+		// 			Methods: []string{"/api.v1.IPService/Get"},
 		// 		},
 		// 	},
 		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("token has expired")),
@@ -128,7 +128,7 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 		// {
 		// 	name:    "cluster get allowed",
 		// 	subject: "john.doe@github",
-		// 	method:  "/api.v1.ClusterService/Get",
+		// 	method:  "/api.v1.IPService/Get",
 		// 	req:     v1.ClusterServiceGetRequest{Project: "john.doe@github"},
 		// 	projectsAndTenants: &putil.ProjectsAndTenants{
 		// 		ProjectRoles: map[string]v1.ProjectRole{
@@ -138,40 +138,40 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 		// 	permissions: []*v1.MethodPermission{
 		// 		{
 		// 			Subject: "john.doe@github",
-		// 			Methods: []string{"/api.v1.ClusterService/Get"},
+		// 			Methods: []string{"/api.v1.IPService/Get"},
 		// 		},
 		// 	},
 		// },
 		// {
 		// 	name:    "method not known",
 		// 	subject: "john.doe@github",
-		// 	method:  "/api.v1.ClusterService/Gest",
+		// 	method:  "/api.v1.IPService/Gest",
 		// 	req:     v1.ClusterServiceGetRequest{Project: "john.doe@github"},
 		// 	permissions: []*v1.MethodPermission{
 		// 		{
 		// 			Subject: "john.doe@github",
-		// 			Methods: []string{"/api.v1.ClusterService/Get"},
+		// 			Methods: []string{"/api.v1.IPService/Get"},
 		// 		},
 		// 	},
-		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("method denied or unknown: /api.v1.ClusterService/Gest")),
+		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("method denied or unknown: /api.v1.IPService/Gest")),
 		// },
 		// {
 		// 	name:    "cluster get not allowed",
 		// 	subject: "john.doe@github",
-		// 	method:  "/api.v1.ClusterService/Get",
+		// 	method:  "/api.v1.IPService/Get",
 		// 	req:     v1.ClusterServiceGetRequest{Project: "john.doe@github"},
 		// 	permissions: []*v1.MethodPermission{
 		// 		{
 		// 			Subject: "john.doe@github",
-		// 			Methods: []string{"/api.v1.ClusterService/List"},
+		// 			Methods: []string{"/api.v1.IPService/List"},
 		// 		},
 		// 	},
-		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.ClusterService/Get")),
+		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.IPService/Get")),
 		// },
 		// {
 		// 	name:    "cluster list allowed",
 		// 	subject: "john.doe@github",
-		// 	method:  "/api.v1.ClusterService/List",
+		// 	method:  "/api.v1.IPService/List",
 		// 	req:     v1.ClusterServiceGetRequest{Project: "john.doe@github"},
 		// 	projectsAndTenants: &putil.ProjectsAndTenants{
 		// 		ProjectRoles: map[string]v1.ProjectRole{
@@ -181,14 +181,14 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 		// 	permissions: []*v1.MethodPermission{
 		// 		{
 		// 			Subject: "john.doe@github",
-		// 			Methods: []string{"/api.v1.ClusterService/List"},
+		// 			Methods: []string{"/api.v1.IPService/List"},
 		// 		},
 		// 	},
 		// },
 		// {
 		// 	name:    "cluster create allowed",
 		// 	subject: "john.doe@github",
-		// 	method:  "/api.v1.ClusterService/Create",
+		// 	method:  "/api.v1.IPService/Create",
 		// 	req:     v1.ClusterServiceGetRequest{Project: "john.doe@github"},
 		// 	projectsAndTenants: &putil.ProjectsAndTenants{
 		// 		ProjectRoles: map[string]v1.ProjectRole{
@@ -198,22 +198,22 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 		// 	permissions: []*v1.MethodPermission{
 		// 		{
 		// 			Subject: "john.doe@github",
-		// 			Methods: []string{"/api.v1.ClusterService/List", "/api.v1.ClusterService/Create"},
+		// 			Methods: []string{"/api.v1.IPService/List", "/api.v1.IPService/Create"},
 		// 		},
 		// 	},
 		// },
 		// {
 		// 	name:    "cluster create not allowed, wrong project",
 		// 	subject: "john.doe@github",
-		// 	method:  "/api.v1.ClusterService/Create",
+		// 	method:  "/api.v1.IPService/Create",
 		// 	req:     v1.ClusterServiceGetRequest{Project: "john.doe@github"},
 		// 	permissions: []*v1.MethodPermission{
 		// 		{
 		// 			Subject: "project-a",
-		// 			Methods: []string{"/api.v1.ClusterService/List", "/api.v1.ClusterService/Create"},
+		// 			Methods: []string{"/api.v1.IPService/List", "/api.v1.IPService/Create"},
 		// 		},
 		// 	},
-		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.ClusterService/Create")),
+		// 	wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.IPService/Create")),
 		// },
 		{
 			name:    "admin api tenantlist is not allowed with MethodPermissions",
@@ -396,7 +396,7 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 			permissions: []*v1.MethodPermission{
 				{
 					Subject: "a-project",
-					Methods: []string{"/api.v1.ClusterService/List"},
+					Methods: []string{"/api.v1.IPService/List"},
 				},
 			},
 			// TODO: I don't really understand why any permissions are necessary?
@@ -416,7 +416,7 @@ func Test_opa_authorize_with_permissions(t *testing.T) {
 			permissions: []*v1.MethodPermission{
 				{
 					Subject: "a-project",
-					Methods: []string{"/api.v1.ClusterService/List"},
+					Methods: []string{"/api.v1.IPService/List"},
 				},
 			},
 			wantErr: connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("not allowed to call: /api.v1.ProjectService/Get")),

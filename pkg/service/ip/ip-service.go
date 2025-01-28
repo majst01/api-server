@@ -2,7 +2,6 @@ package ip
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -12,11 +11,8 @@ import (
 	"github.com/metal-stack/api-server/pkg/db/metal"
 	apiv1 "github.com/metal-stack/api/go/api/v1"
 	"github.com/metal-stack/api/go/api/v1/apiv1connect"
-	"github.com/metal-stack/metal-go/api/client/ip"
-	"github.com/metal-stack/metal-go/api/models"
-	"github.com/metal-stack/metal-lib/pkg/pointer"
-	"github.com/metal-stack/metal-lib/pkg/tag"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	r "gopkg.in/rethinkdb/rethinkdb-go.v6"
 )
 
 type Config struct {
@@ -40,7 +36,10 @@ func (i *ipServiceServer) Get(ctx context.Context, rq *connect.Request[apiv1.IPS
 	req := rq.Msg
 
 	resp, err := i.ds.IP().Get(ctx, req.Ip)
-	if err != nil { // TODO notfound
+	if err != nil {
+		if generic.IsNotFound(err) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
 		return nil, err
 	}
 
@@ -52,36 +51,30 @@ func (i *ipServiceServer) Get(ctx context.Context, rq *connect.Request[apiv1.IPS
 // List implements v1.IPServiceServer
 func (i *ipServiceServer) List(ctx context.Context, rq *connect.Request[apiv1.IPServiceListRequest]) (*connect.Response[apiv1.IPServiceListResponse], error) {
 	i.log.Debug("list", "ip", rq)
-	req := rq.Msg
+	// req := rq.Msg
 
-	ipfr := &models.V1IPFindRequest{
-		Projectid: req.Project,
-	}
+	// resp, err := i.ds.IP().Search(ctx, query)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	if req.Network != nil {
-		ipfr.Networkid = *req.Network
-	}
+	// var res []*apiv1.IP
+	// for _, ipElem := range resp.Payload {
 
-	resp, err := i.m.IP().FindIPs(ip.NewFindIPsParams().WithBody(ipfr), nil)
-	if err != nil {
-		return nil, err
-	}
+	// 	m := tag.NewTagMap(ipElem.Tags)
+	// 	if _, ok := m.Value(tag.MachineID); ok {
+	// 		// we do not want to show machine ips (e.g. firewall public ips)
+	// 		continue
+	// 	}
 
-	var res []*apiv1.IP
-	for _, ipElem := range resp.Payload {
+	// 	res = append(res, convert(ipElem))
+	// }
 
-		m := tag.NewTagMap(ipElem.Tags)
-		if _, ok := m.Value(tag.MachineID); ok {
-			// we do not want to show machine ips (e.g. firewall public ips)
-			continue
-		}
+	// return connect.NewResponse(&apiv1.IPServiceListResponse{
+	// 	Ips: res,
+	// }), nil
 
-		res = append(res, convert(ipElem))
-	}
-
-	return connect.NewResponse(&apiv1.IPServiceListResponse{
-		Ips: res,
-	}), nil
+	return nil, nil
 }
 
 // Delete implements v1.IPServiceServer
@@ -106,31 +99,32 @@ func (i *ipServiceServer) Delete(ctx context.Context, rq *connect.Request[apiv1.
 // Allocate implements v1.IPServiceServer
 func (i *ipServiceServer) Allocate(ctx context.Context, rq *connect.Request[apiv1.IPServiceAllocateRequest]) (*connect.Response[apiv1.IPServiceAllocateResponse], error) {
 	i.log.Debug("allocate", "ip", rq)
-	req := rq.Msg
+	// req := rq.Msg
 
-	ipType := models.V1IPBaseTypeEphemeral
-	if req.Type != apiv1.IPType_IP_TYPE_UNSPECIFIED.Enum() {
-		ipType = models.V1IPAllocateRequestTypeStatic
-	}
+	// ipType := models.V1IPBaseTypeEphemeral
+	// if req.Type != apiv1.IPType_IP_TYPE_UNSPECIFIED.Enum() {
+	// 	ipType = models.V1IPAllocateRequestTypeStatic
+	// }
 
-	ipResp, err := i.m.IP().AllocateIP(ip.NewAllocateIPParams().WithBody(&models.V1IPAllocateRequest{
-		Description: req.Description,
-		Name:        req.Name,
-		Networkid:   &req.Network,
-		Projectid:   &req.Project,
-		Type:        pointer.Pointer(string(ipType)),
-		Tags:        req.Tags,
-	}), nil)
-	if err != nil {
-		var conflict *ip.AllocateIPConflict
-		if errors.As(err, &conflict) {
-			return nil, connect.NewError(connect.CodeAlreadyExists, err)
-		}
+	// ipResp, err := i.m.IP().AllocateIP(ip.NewAllocateIPParams().WithBody(&models.V1IPAllocateRequest{
+	// 	Description: req.Description,
+	// 	Name:        req.Name,
+	// 	Networkid:   &req.Network,
+	// 	Projectid:   &req.Project,
+	// 	Type:        pointer.Pointer(string(ipType)),
+	// 	Tags:        req.Tags,
+	// }), nil)
+	// if err != nil {
+	// 	var conflict *ip.AllocateIPConflict
+	// 	if errors.As(err, &conflict) {
+	// 		return nil, connect.NewError(connect.CodeAlreadyExists, err)
+	// 	}
 
-		return nil, err
-	}
+	// 	return nil, err
+	// }
 
-	return connect.NewResponse(&apiv1.IPServiceAllocateResponse{Ip: convert(ipResp.Payload)}), nil
+	// return connect.NewResponse(&apiv1.IPServiceAllocateResponse{Ip: convert(ipResp.Payload)}), nil
+	return nil, nil
 }
 
 // Static implements v1.IPServiceServer
@@ -198,4 +192,76 @@ func convert(resp *metal.IP) *apiv1.IP {
 		DeletedAt:   &timestamppb.Timestamp{},
 	}
 	return ip
+}
+
+func generateTerm(q r.Term, p apiv1.IPServiceListRequest) *r.Term {
+	if p.Ip != nil {
+		q = q.Filter(func(row r.Term) r.Term {
+			return row.Field("id").Eq(*p.Ip)
+		})
+	}
+
+	// if p.AllocationUUID != nil {
+	// 	q = q.Filter(func(row r.Term) r.Term {
+	// 		return row.Field("allocationuuid").Eq(*p.AllocationUUID)
+	// 	})
+	// }
+
+	// if p.Name != nil {
+	// 	q = q.Filter(func(row r.Term) r.Term {
+	// 		return row.Field("name").Eq(*p.Name)
+	// 	})
+	// }
+
+	// if p.Project != nil {
+	// 	q = q.Filter(func(row r.Term) r.Term {
+	// 		return row.Field("projectid").Eq(*p.ProjectID)
+	// 	})
+	// }
+
+	if p.Network != nil {
+		q = q.Filter(func(row r.Term) r.Term {
+			return row.Field("networkid").Eq(*p.Network)
+		})
+	}
+
+	// if p.ParentPrefixCidr != nil {
+	// 	q = q.Filter(func(row r.Term) r.Term {
+	// 		return row.Field("networkprefix").Eq(*p.ParentPrefixCidr)
+	// 	})
+	// }
+
+	// if p.MachineID != nil {
+	// 	p.Tags = append(p.Tags, metal.IpTag(tag.MachineID, *p.MachineID))
+	// }
+
+	// for _, t := range p.Tags {
+	// 	t := t
+	// 	q = q.Filter(func(row r.Term) r.Term {
+	// 		return row.Field("tags").Contains(r.Expr(t))
+	// 	})
+	// }
+
+	if p.Type != nil {
+		q = q.Filter(func(row r.Term) r.Term {
+			return row.Field("type").Eq(p.Type.String())
+		})
+	}
+
+	// if p.AddressFamily != nil {
+	// 	separator := "."
+	// 	af := metal.ToAddressFamily(*p.AddressFamily)
+	// 	switch af {
+	// 	case metal.IPv4AddressFamily:
+	// 		separator = "\\."
+	// 	case metal.IPv6AddressFamily:
+	// 		separator = ":"
+	// 	}
+
+	// 	q = q.Filter(func(row r.Term) r.Term {
+	// 		return row.Field("id").Match(separator)
+	// 	})
+	// }
+
+	return &q
 }

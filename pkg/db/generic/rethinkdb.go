@@ -71,10 +71,24 @@ type (
 	}
 )
 
-func New(log *slog.Logger, dbname string, queryExecutor r.QueryExecutor) *Datastore {
+func New(log *slog.Logger, dbname string, queryExecutor r.QueryExecutor) (*Datastore, error) {
+	err := r.DBList().Contains(dbname).Do(func(row r.Term) r.Term {
+		return r.Branch(row, nil, r.DBCreate(dbname))
+	}).Exec(queryExecutor)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create database: %w", err)
+	}
+	ip, err := newStorage[*metal.IP](log, dbname, "ip", queryExecutor)
+	if err != nil {
+		return nil, err
+	}
+	partition, err := newStorage[*metal.Partition](log, dbname, "partition", queryExecutor)
+	if err != nil {
+		return nil, err
+	}
 	return &Datastore{
-		ip:        newStorage[*metal.IP](log, dbname, "ip", queryExecutor),
-		partition: newStorage[*metal.Partition](log, dbname, "partition", queryExecutor),
+		ip:        ip,
+		partition: partition,
 		// event:               newStorage[*metal.ProvisioningEventContainer](log, dbname, "event", queryExecutor),
 		// filesystemlayout:    newStorage[*metal.FilesystemLayout](log, dbname, "filesystemlayout", queryExecutor),
 		// image:               newStorage[*metal.Image](log, dbname, "image", queryExecutor),
@@ -84,7 +98,7 @@ func New(log *slog.Logger, dbname string, queryExecutor r.QueryExecutor) *Datast
 		// sizeimageConstraint: newStorage[*metal.SizeImageConstraint](log, dbname, "sizeimageconstraint", queryExecutor),
 		// sw:                  newStorage[*metal.Switch](log, dbname, "switch", queryExecutor),
 		// switchStatus:        newStorage[*metal.SwitchStatus](log, dbname, "switchstatus", queryExecutor),
-	}
+	}, nil
 }
 
 func (d *Datastore) IP() Storage[*metal.IP] {
@@ -95,7 +109,7 @@ func (d *Datastore) Partition() Storage[*metal.Partition] {
 }
 
 // newStorage creates a new Storage which uses the given database abstraction.
-func newStorage[E Entity](log *slog.Logger, dbname, tableName string, queryExecutor r.QueryExecutor) Storage[E] {
+func newStorage[E Entity](log *slog.Logger, dbname, tableName string, queryExecutor r.QueryExecutor) (Storage[E], error) {
 	ds := &rethinkStore[E]{
 		log:           log,
 		queryExecutor: queryExecutor,
@@ -103,7 +117,11 @@ func newStorage[E Entity](log *slog.Logger, dbname, tableName string, queryExecu
 		table:         r.DB(dbname).Table(tableName),
 		tableName:     tableName,
 	}
-	return ds
+	err := ds.Initialize()
+	if err != nil {
+		return nil, err
+	}
+	return ds, nil
 }
 
 // Create implements Storage.
@@ -246,6 +264,24 @@ func (rs *rethinkStore[E]) Upsert(ctx context.Context, e E) error {
 
 	if e.GetID() == "" && len(res.GeneratedKeys) > 0 {
 		e.SetID(res.GeneratedKeys[0])
+	}
+	return nil
+}
+
+// Initialize initializes the database, it should be called before serving the metal-api
+// in order to ensure that tables, pools, permissions are properly initialized
+func (rs *rethinkStore[E]) Initialize() error {
+	return rs.initializeTable(r.TableCreateOpts{Shards: 1, Replicas: 1})
+}
+
+func (rs *rethinkStore[E]) initializeTable(opts r.TableCreateOpts) error {
+	rs.log.Info("starting database init", "table", rs.tableName)
+
+	err := r.DB(rs.dbname).TableList().Contains(rs.tableName).Do(func(row r.Term) r.Term {
+		return r.Branch(row, nil, r.DB(rs.dbname).TableCreate(rs.tableName, opts))
+	}).Exec(rs.queryExecutor)
+	if err != nil {
+		return fmt.Errorf("cannot create table %s %w", rs.tableName, err)
 	}
 	return nil
 }
