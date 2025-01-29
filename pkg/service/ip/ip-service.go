@@ -161,7 +161,7 @@ func (i *ipServiceServer) Allocate(ctx context.Context, rq *connect.Request[apiv
 	// }
 
 	// return connect.NewResponse(&apiv1.IPServiceAllocateResponse{Ip: convert(ipResp.Payload)}), nil
-	return nil, nil
+	return connect.NewResponse(&apiv1.IPServiceAllocateResponse{}), nil
 }
 
 // Static implements v1.IPServiceServer
@@ -171,17 +171,22 @@ func (i *ipServiceServer) Update(ctx context.Context, rq *connect.Request[apiv1.
 	req := rq.Msg
 
 	var t metal.IPType
-	switch req.Type {
-	case apiv1.IPType_IP_TYPE_EPHEMERAL.Enum():
-		t = metal.Ephemeral
-	case apiv1.IPType_IP_TYPE_STATIC.Enum():
-		t = metal.Static
-	case apiv1.IPType_IP_TYPE_UNSPECIFIED.Enum():
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("ip type cannot be unspecified: %s", req.Type))
+	if req.Type != nil {
+		switch req.Type.String() {
+		case apiv1.IPType_IP_TYPE_EPHEMERAL.String():
+			t = metal.Ephemeral
+		case apiv1.IPType_IP_TYPE_STATIC.String():
+			t = metal.Static
+		case apiv1.IPType_IP_TYPE_UNSPECIFIED.String():
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("ip type cannot be unspecified: %s", req.Type))
+		}
 	}
 
 	old, err := i.ds.IP().Get(ctx, req.Ip)
 	if err != nil { // TODO not found
+		if generic.IsNotFound(err) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
 		return nil, err
 	}
 
@@ -200,10 +205,21 @@ func (i *ipServiceServer) Update(ctx context.Context, rq *connect.Request[apiv1.
 
 	err = i.ds.IP().Update(ctx, &newIP, old)
 	if err != nil {
+		if generic.IsNotFound(err) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
 		return nil, err
 	}
 
-	return connect.NewResponse(&apiv1.IPServiceUpdateResponse{Ip: convert(&newIP)}), nil
+	stored, err := i.ds.IP().Get(ctx, req.Ip)
+	if err != nil {
+		if generic.IsNotFound(err) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		return nil, err
+	}
+
+	return connect.NewResponse(&apiv1.IPServiceUpdateResponse{Ip: convert(stored)}), nil
 }
 
 func convert(resp *metal.IP) *apiv1.IP {
