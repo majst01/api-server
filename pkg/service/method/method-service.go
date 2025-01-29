@@ -49,7 +49,7 @@ func (m *methodServiceServer) List(ctx context.Context, _ *connect.Request[apiv1
 			continue
 		}
 
-		if strings.HasPrefix(m, "/api.v1") { // TODO: add all methods that do not require admin permissions
+		if strings.HasPrefix(m, "/metalstack.api.v1") { // TODO: add all methods that do not require admin permissions
 			methods = append(methods, m)
 		}
 	}

@@ -137,9 +137,9 @@ $ grpcurl -plaintext localhost:8080 api.v1.VersionService/Get
 Can also be done with `buf` with different protocols
 
 ```bash
-buf curl -v --http2-prior-knowledge --protocol grpc    http://localhost:8080/api.v1.VersionService/Get
-buf curl -v --http2-prior-knowledge --protocol grpcweb http://localhost:8080/api.v1.VersionService/Get
-buf curl -v --http2-prior-knowledge --protocol connect http://localhost:8080/api.v1.VersionService/Get
+buf curl -v --http2-prior-knowledge --protocol grpc    http://localhost:8080/metalstack.api.v1.VersionService/Get
+buf curl -v --http2-prior-knowledge --protocol grpcweb http://localhost:8080/metalstack.api.v1.VersionService/Get
+buf curl -v --http2-prior-knowledge --protocol connect http://localhost:8080/metalstack.api.v1.VersionService/Get
 {
   "version": {
     "version": "fix-server-reflection",
@@ -153,7 +153,7 @@ buf curl -v --http2-prior-knowledge --protocol connect http://localhost:8080/api
 Or even with `curl`
 
 ```bash
-curl -v -X POST -d '{}' -H 'Content-Type: application/json' https://api.metalstack.cloud:443/api.v1.VersionService/Get
+curl -v -X POST -d '{}' -H 'Content-Type: application/json' https://api.metalstack.io:443/metalstack.api.v1.VersionService/Get
 ```
 
 More complex example with jwt header and payload

@@ -14,6 +14,7 @@ import (
 	"github.com/metal-stack/api/go/metalstack/api/v1/apiv1connect"
 	ipamv1 "github.com/metal-stack/go-ipam/api/v1"
 	ipamv1connect "github.com/metal-stack/go-ipam/api/v1/apiv1connect"
+	"github.com/metal-stack/metal-lib/pkg/tag"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	r "gopkg.in/rethinkdb/rethinkdb-go.v6"
 )
@@ -57,30 +58,43 @@ func (i *ipServiceServer) Get(ctx context.Context, rq *connect.Request[apiv1.IPS
 // List implements v1.IPServiceServer
 func (i *ipServiceServer) List(ctx context.Context, rq *connect.Request[apiv1.IPServiceListRequest]) (*connect.Response[apiv1.IPServiceListResponse], error) {
 	i.log.Debug("list", "ip", rq)
-	// req := rq.Msg
+	req := rq.Msg
 
-	// resp, err := i.ds.IP().Search(ctx, query)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	q := &query{
+		IPServiceListRequest: apiv1.IPServiceListRequest{
+			Ip:               req.Ip,
+			Name:             req.Name,
+			Network:          req.Network,
+			Project:          req.Project,
+			Type:             req.Type,
+			Af:               req.Af,
+			Uuid:             req.Uuid,
+			MachineId:        req.MachineId,
+			ParentPrefixCidr: req.ParentPrefixCidr,
+			Tags:             req.Tags,
+		},
+	}
 
-	// var res []*apiv1.IP
-	// for _, ipElem := range resp.Payload {
+	resp, err := i.ds.IP().Search(ctx, q)
+	if err != nil {
+		return nil, err
+	}
 
-	// 	m := tag.NewTagMap(ipElem.Tags)
-	// 	if _, ok := m.Value(tag.MachineID); ok {
-	// 		// we do not want to show machine ips (e.g. firewall public ips)
-	// 		continue
-	// 	}
+	var res []*apiv1.IP
+	for _, ip := range resp {
 
-	// 	res = append(res, convert(ipElem))
-	// }
+		m := tag.NewTagMap(ip.Tags)
+		if _, ok := m.Value(tag.MachineID); ok {
+			// we do not want to show machine ips (e.g. firewall public ips)
+			continue
+		}
 
-	// return connect.NewResponse(&apiv1.IPServiceListResponse{
-	// 	Ips: res,
-	// }), nil
+		res = append(res, convert(ip))
+	}
 
-	return nil, nil
+	return connect.NewResponse(&apiv1.IPServiceListResponse{
+		Ips: res,
+	}), nil
 }
 
 // Delete implements v1.IPServiceServer
@@ -217,30 +231,33 @@ func convert(resp *metal.IP) *apiv1.IP {
 	return ip
 }
 
-func generateTerm(q r.Term, p apiv1.IPServiceListRequest) *r.Term {
+type query struct {
+	apiv1.IPServiceListRequest
+}
+
+func (p query) Query(q r.Term) *r.Term {
+	// Project is mandatory
+	q = q.Filter(func(row r.Term) r.Term {
+		return row.Field("projectid").Eq(p.Project)
+	})
+
 	if p.Ip != nil {
 		q = q.Filter(func(row r.Term) r.Term {
 			return row.Field("id").Eq(*p.Ip)
 		})
 	}
 
-	// if p.AllocationUUID != nil {
-	// 	q = q.Filter(func(row r.Term) r.Term {
-	// 		return row.Field("allocationuuid").Eq(*p.AllocationUUID)
-	// 	})
-	// }
+	if p.Uuid != nil {
+		q = q.Filter(func(row r.Term) r.Term {
+			return row.Field("allocationuuid").Eq(*p.Uuid)
+		})
+	}
 
-	// if p.Name != nil {
-	// 	q = q.Filter(func(row r.Term) r.Term {
-	// 		return row.Field("name").Eq(*p.Name)
-	// 	})
-	// }
-
-	// if p.Project != nil {
-	// 	q = q.Filter(func(row r.Term) r.Term {
-	// 		return row.Field("projectid").Eq(*p.ProjectID)
-	// 	})
-	// }
+	if p.Name != nil {
+		q = q.Filter(func(row r.Term) r.Term {
+			return row.Field("name").Eq(*p.Name)
+		})
+	}
 
 	if p.Network != nil {
 		q = q.Filter(func(row r.Term) r.Term {
@@ -248,22 +265,22 @@ func generateTerm(q r.Term, p apiv1.IPServiceListRequest) *r.Term {
 		})
 	}
 
-	// if p.ParentPrefixCidr != nil {
-	// 	q = q.Filter(func(row r.Term) r.Term {
-	// 		return row.Field("networkprefix").Eq(*p.ParentPrefixCidr)
-	// 	})
-	// }
+	if p.ParentPrefixCidr != nil {
+		q = q.Filter(func(row r.Term) r.Term {
+			return row.Field("prefix").Eq(*p.ParentPrefixCidr)
+		})
+	}
 
-	// if p.MachineID != nil {
-	// 	p.Tags = append(p.Tags, metal.IpTag(tag.MachineID, *p.MachineID))
-	// }
+	if p.MachineId != nil {
+		p.Tags = append(p.Tags, fmt.Sprintf("%s=%s", tag.MachineID, *p.MachineId))
+	}
 
-	// for _, t := range p.Tags {
-	// 	t := t
-	// 	q = q.Filter(func(row r.Term) r.Term {
-	// 		return row.Field("tags").Contains(r.Expr(t))
-	// 	})
-	// }
+	for _, t := range p.Tags {
+		t := t
+		q = q.Filter(func(row r.Term) r.Term {
+			return row.Field("tags").Contains(r.Expr(t))
+		})
+	}
 
 	if p.Type != nil {
 		q = q.Filter(func(row r.Term) r.Term {
@@ -271,20 +288,19 @@ func generateTerm(q r.Term, p apiv1.IPServiceListRequest) *r.Term {
 		})
 	}
 
-	// if p.AddressFamily != nil {
-	// 	separator := "."
-	// 	af := metal.ToAddressFamily(*p.AddressFamily)
-	// 	switch af {
-	// 	case metal.IPv4AddressFamily:
-	// 		separator = "\\."
-	// 	case metal.IPv6AddressFamily:
-	// 		separator = ":"
-	// 	}
+	if p.Af != nil {
+		var separator string
+		switch p.Af.String() {
+		case apiv1.IPAddressFamily_IP_ADDRESS_FAMILY_V4.String():
+			separator = "\\."
+		case apiv1.IPAddressFamily_IP_ADDRESS_FAMILY_V6.String():
+			separator = ":"
+		}
 
-	// 	q = q.Filter(func(row r.Term) r.Term {
-	// 		return row.Field("id").Match(separator)
-	// 	})
-	// }
+		q = q.Filter(func(row r.Term) r.Term {
+			return row.Field("id").Match(separator)
+		})
+	}
 
 	return &q
 }

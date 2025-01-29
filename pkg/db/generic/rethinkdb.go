@@ -186,6 +186,7 @@ func (rs *rethinkStore[E]) Find(ctx context.Context, query EntityQuery) (E, erro
 }
 
 func (rs *rethinkStore[E]) Search(ctx context.Context, query EntityQuery) ([]E, error) {
+	rs.log.Info("search", "table", rs.table, "query", query.Query(rs.table))
 	res, err := query.Query(rs.table).Run(rs.queryExecutor, r.RunOpts{Context: ctx})
 	if err != nil {
 		return nil, fmt.Errorf("cannot search %v in database: %w", rs.tableName, err)

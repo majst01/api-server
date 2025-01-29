@@ -489,7 +489,7 @@ func Test_validateTokenCreate(t *testing.T) {
 					{
 						Subject: "ae8d2493-41ec-4efd-bbb4-81085b20b6fe",
 						Methods: []string{
-							"/api.v1.IPService/Get",
+							"/metalstack.api.v1.IPService/Get",
 						},
 					},
 				},
@@ -505,7 +505,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.IPService/Get"},
+						Methods: []string{"/metalstack.api.v1.IPService/Get"},
 					},
 				},
 			},
@@ -514,7 +514,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.IPService/Get"},
+						Methods: []string{"/metalstack.api.v1.IPService/Get"},
 					},
 				},
 				Expires: inOneHour,
@@ -528,7 +528,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.IPService/Get"},
+						Methods: []string{"/metalstack.api.v1.IPService/Get"},
 					},
 				},
 			},
@@ -537,14 +537,14 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.UnknownService/Get"},
+						Methods: []string{"/metalstack.api.v1.UnknownService/Get"},
 					},
 				},
 				Expires: inOneHour,
 			},
 			adminSubjects:  []string{},
 			wantErr:        true,
-			wantErrMessage: "requested method:\"/api.v1.UnknownService/Get\" is not allowed",
+			wantErrMessage: "requested method:\"/metalstack.api.v1.UnknownService/Get\" is not allowed",
 		},
 		{
 			name: "simple token with one project and permission, wrong project given",
@@ -552,7 +552,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.IPService/Get"},
+						Methods: []string{"/metalstack.api.v1.IPService/Get"},
 					},
 				},
 			},
@@ -561,7 +561,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "cde",
-						Methods: []string{"/api.v1.IPService/Get"},
+						Methods: []string{"/metalstack.api.v1.IPService/Get"},
 					},
 				},
 				Expires: inOneHour,
@@ -576,7 +576,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.IPService/Get"},
+						Methods: []string{"/metalstack.api.v1.IPService/Get"},
 					},
 				},
 			},
@@ -585,14 +585,14 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.IPService/List"},
+						Methods: []string{"/metalstack.api.v1.IPService/List"},
 					},
 				},
 				Expires: inOneHour,
 			},
 			adminSubjects:  []string{},
 			wantErr:        true,
-			wantErrMessage: "requested method:\"/api.v1.IPService/List\" is not allowed for subject:\"abc\"",
+			wantErrMessage: "requested method:\"/metalstack.api.v1.IPService/List\" is not allowed for subject:\"abc\"",
 		},
 		{
 			name: "simple token with one project and permission, wrong messages given",
@@ -601,9 +601,9 @@ func Test_validateTokenCreate(t *testing.T) {
 					{
 						Subject: "abc",
 						Methods: []string{
-							"/api.v1.IPService/Create",
-							"/api.v1.IPService/Get",
-							"/api.v1.IPService/Delete",
+							"/metalstack.api.v1.IPService/Create",
+							"/metalstack.api.v1.IPService/Get",
+							"/metalstack.api.v1.IPService/Delete",
 						},
 					},
 				},
@@ -614,8 +614,8 @@ func Test_validateTokenCreate(t *testing.T) {
 					{
 						Subject: "abc",
 						Methods: []string{
-							"/api.v1.IPService/Get",
-							"/api.v1.IPService/List",
+							"/metalstack.api.v1.IPService/Get",
+							"/metalstack.api.v1.IPService/List",
 						},
 					},
 				},
@@ -623,7 +623,7 @@ func Test_validateTokenCreate(t *testing.T) {
 			},
 			adminSubjects:  []string{},
 			wantErr:        true,
-			wantErrMessage: "requested method:\"/api.v1.IPService/List\" is not allowed for subject:\"abc\"",
+			wantErrMessage: "requested method:\"/metalstack.api.v1.IPService/List\" is not allowed for subject:\"abc\"",
 		},
 		{
 			name: "expiration too long",
@@ -650,7 +650,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.IPService/Get"},
+						Methods: []string{"/metalstack.api.v1.IPService/Get"},
 					},
 				},
 			},
@@ -659,7 +659,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.IPService/Get"},
+						Methods: []string{"/metalstack.api.v1.IPService/Get"},
 					},
 				},
 				TenantRoles: map[string]v1.TenantRole{
@@ -677,7 +677,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.IPService/Get"},
+						Methods: []string{"/metalstack.api.v1.IPService/Get"},
 					},
 				},
 				TenantRoles: map[string]v1.TenantRole{
@@ -689,7 +689,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.IPService/Get"},
+						Methods: []string{"/metalstack.api.v1.IPService/Get"},
 					},
 				},
 				TenantRoles: map[string]v1.TenantRole{
@@ -707,7 +707,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.IPService/Get"},
+						Methods: []string{"/metalstack.api.v1.IPService/Get"},
 					},
 				},
 				TenantRoles: map[string]v1.TenantRole{
@@ -719,7 +719,7 @@ func Test_validateTokenCreate(t *testing.T) {
 				Permissions: []*v1.MethodPermission{
 					{
 						Subject: "abc",
-						Methods: []string{"/api.v1.IPService/Get"},
+						Methods: []string{"/metalstack.api.v1.IPService/Get"},
 					},
 				},
 				TenantRoles: map[string]v1.TenantRole{
