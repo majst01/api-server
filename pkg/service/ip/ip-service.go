@@ -61,7 +61,7 @@ func (i *ipServiceServer) List(ctx context.Context, rq *connect.Request[apiv1.IP
 	req := rq.Msg
 
 	q := &query{
-		IPServiceListRequest: apiv1.IPServiceListRequest{
+		IPServiceListRequest: &apiv1.IPServiceListRequest{
 			Ip:               req.Ip,
 			Name:             req.Name,
 			Network:          req.Network,
@@ -232,7 +232,7 @@ func convert(resp *metal.IP) *apiv1.IP {
 }
 
 type query struct {
-	apiv1.IPServiceListRequest
+	*apiv1.IPServiceListRequest
 }
 
 func (p query) Query(q r.Term) *r.Term {
