@@ -170,18 +170,6 @@ func (i *ipServiceServer) Update(ctx context.Context, rq *connect.Request[apiv1.
 
 	req := rq.Msg
 
-	var t metal.IPType
-	if req.Type != nil {
-		switch req.Type.String() {
-		case apiv1.IPType_IP_TYPE_EPHEMERAL.String():
-			t = metal.Ephemeral
-		case apiv1.IPType_IP_TYPE_STATIC.String():
-			t = metal.Static
-		case apiv1.IPType_IP_TYPE_UNSPECIFIED.String():
-			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("ip type cannot be unspecified: %s", req.Type))
-		}
-	}
-
 	old, err := i.ds.IP().Get(ctx, req.Ip)
 	if err != nil { // TODO not found
 		if generic.IsNotFound(err) {
@@ -199,6 +187,15 @@ func (i *ipServiceServer) Update(ctx context.Context, rq *connect.Request[apiv1.
 		newIP.Name = *req.Name
 	}
 	if req.Type != nil {
+		var t metal.IPType
+		switch req.Type.String() {
+		case apiv1.IPType_IP_TYPE_EPHEMERAL.String():
+			t = metal.Ephemeral
+		case apiv1.IPType_IP_TYPE_STATIC.String():
+			t = metal.Static
+		case apiv1.IPType_IP_TYPE_UNSPECIFIED.String():
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("ip type cannot be unspecified: %s", req.Type))
+		}
 		newIP.Type = t
 	}
 	newIP.Tags = req.Tags

@@ -3,6 +3,7 @@ package ip
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -11,10 +12,18 @@ import (
 	"github.com/metal-stack/api-server/pkg/db/metal"
 	"github.com/metal-stack/api-server/pkg/test"
 	apiv1 "github.com/metal-stack/api/go/metalstack/api/v1"
+	ipamv1 "github.com/metal-stack/go-ipam/api/v1"
+	ipamv1connect "github.com/metal-stack/go-ipam/api/v1/apiv1connect"
 	"github.com/metal-stack/metal-lib/pkg/pointer"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/testing/protocmp"
 )
+
+var prefixMap = map[string][]string{
+	"1.2.3.0/24":    {"1.2.3.4", "1.2.3.5", "1.2.3.6"},
+	"2.3.4.0/24":    {"2.3.4.5"},
+	"2001:db8::/96": {"2001:db8::1"},
+}
 
 func Test_ipServiceServer_Get(t *testing.T) {
 	container, c, err := test.StartRethink(t)
@@ -31,7 +40,7 @@ func Test_ipServiceServer_Get(t *testing.T) {
 	ds, err := generic.New(log, "metal", c)
 	require.NoError(t, err)
 
-	_, err = ds.IP().Create(ctx, &metal.IP{IPAddress: "1.2.3.4"})
+	createIPs(t, ctx, ds, ipam, prefixMap, []*metal.IP{{IPAddress: "1.2.3.4"}})
 
 	require.NoError(t, err)
 
@@ -113,16 +122,14 @@ func Test_ipServiceServer_List(t *testing.T) {
 	ds, err := generic.New(log, "metal", c)
 	require.NoError(t, err)
 
-	_, err = ds.IP().Create(ctx, &metal.IP{Name: "ip1", IPAddress: "1.2.3.4", ProjectID: "p1"})
-	require.NoError(t, err)
-	_, err = ds.IP().Create(ctx, &metal.IP{Name: "ip2", IPAddress: "1.2.3.5", ProjectID: "p1"})
-	require.NoError(t, err)
-	_, err = ds.IP().Create(ctx, &metal.IP{Name: "ip3", IPAddress: "1.2.3.6", ProjectID: "p1", NetworkID: "n1"})
-	require.NoError(t, err)
-	_, err = ds.IP().Create(ctx, &metal.IP{Name: "ip4", IPAddress: "2001:db8::1", ProjectID: "p2", NetworkID: "n2"})
-	require.NoError(t, err)
-	_, err = ds.IP().Create(ctx, &metal.IP{Name: "ip5", IPAddress: "2.3.4.5", ProjectID: "p2", NetworkID: "n3", ParentPrefixCidr: "2.3.4.0/24"})
-	require.NoError(t, err)
+	ips := []*metal.IP{
+		{Name: "ip1", IPAddress: "1.2.3.4", ProjectID: "p1"},
+		{Name: "ip2", IPAddress: "1.2.3.5", ProjectID: "p1"},
+		{Name: "ip3", IPAddress: "1.2.3.6", ProjectID: "p1", NetworkID: "n1"},
+		{Name: "ip4", IPAddress: "2001:db8::1", ProjectID: "p2", NetworkID: "n2"},
+		{Name: "ip5", IPAddress: "2.3.4.5", ProjectID: "p2", NetworkID: "n3", ParentPrefixCidr: "2.3.4.0/24"},
+	}
+	createIPs(t, ctx, ds, ipam, prefixMap, ips)
 
 	tests := []struct {
 		name           string
@@ -220,16 +227,14 @@ func Test_ipServiceServer_Update(t *testing.T) {
 	ds, err := generic.New(log, "metal", c)
 	require.NoError(t, err)
 
-	_, err = ds.IP().Create(ctx, &metal.IP{Name: "ip1", IPAddress: "1.2.3.4", ProjectID: "p1"})
-	require.NoError(t, err)
-	_, err = ds.IP().Create(ctx, &metal.IP{Name: "ip2", IPAddress: "1.2.3.5", ProjectID: "p1"})
-	require.NoError(t, err)
-	_, err = ds.IP().Create(ctx, &metal.IP{Name: "ip3", IPAddress: "1.2.3.6", ProjectID: "p1", NetworkID: "n1"})
-	require.NoError(t, err)
-	_, err = ds.IP().Create(ctx, &metal.IP{Name: "ip4", IPAddress: "2001:db8::1", ProjectID: "p2", NetworkID: "n2", Tags: []string{"color=red"}})
-	require.NoError(t, err)
-	_, err = ds.IP().Create(ctx, &metal.IP{Name: "ip5", IPAddress: "2.3.4.5", ProjectID: "p2", NetworkID: "n3", ParentPrefixCidr: "2.3.4.0/24"})
-	require.NoError(t, err)
+	ips := []*metal.IP{
+		{Name: "ip1", IPAddress: "1.2.3.4", ProjectID: "p1"},
+		{Name: "ip2", IPAddress: "1.2.3.5", ProjectID: "p1"},
+		{Name: "ip3", IPAddress: "1.2.3.6", ProjectID: "p1", NetworkID: "n1"},
+		{Name: "ip4", IPAddress: "2001:db8::1", ProjectID: "p2", NetworkID: "n2", Tags: []string{"color=red"}},
+		{Name: "ip5", IPAddress: "2.3.4.5", ProjectID: "p2", NetworkID: "n3", ParentPrefixCidr: "2.3.4.0/24"},
+	}
+	createIPs(t, ctx, ds, ipam, prefixMap, ips)
 
 	tests := []struct {
 		name           string
@@ -309,5 +314,109 @@ func Test_ipServiceServer_Update(t *testing.T) {
 				t.Errorf("ipServiceServer.Update() = %v, want %vņdiff:%s", got.Msg, tt.want, diff)
 			}
 		})
+	}
+}
+
+func Test_ipServiceServer_Delete(t *testing.T) {
+	container, c, err := test.StartRethink(t)
+	require.NoError(t, err)
+	defer func() {
+		_ = container.Terminate(context.Background())
+	}()
+
+	ipam := test.StartIpam(t)
+
+	ctx := context.Background()
+	log := slog.Default()
+
+	ds, err := generic.New(log, "metal", c)
+	require.NoError(t, err)
+
+	ips := []*metal.IP{
+		{Name: "ip1", IPAddress: "1.2.3.4", ProjectID: "p1"},
+		{Name: "ip2", IPAddress: "1.2.3.5", ProjectID: "p1"},
+		{Name: "ip3", IPAddress: "1.2.3.6", ProjectID: "p1", NetworkID: "n1"},
+		{Name: "ip4", IPAddress: "2001:db8::1", ProjectID: "p2", NetworkID: "n2"},
+		{Name: "ip5", IPAddress: "2.3.4.5", ProjectID: "p2", NetworkID: "n3", ParentPrefixCidr: "2.3.4.0/24"},
+	}
+	createIPs(t, ctx, ds, ipam, prefixMap, ips)
+
+	tests := []struct {
+		name           string
+		log            *slog.Logger
+		ctx            context.Context
+		rq             *apiv1.IPServiceDeleteRequest
+		ds             *generic.Datastore
+		want           *apiv1.IPServiceDeleteResponse
+		wantReturnCode connect.Code
+		wantErr        bool
+	}{
+		{
+			name:    "get by ip",
+			log:     log,
+			ctx:     ctx,
+			rq:      &apiv1.IPServiceDeleteRequest{Ip: "1.2.3.4", Project: "p1"},
+			ds:      ds,
+			want:    &apiv1.IPServiceDeleteResponse{Ip: &apiv1.IP{Name: "ip1", Ip: "1.2.3.4", Project: "p1"}},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			i := &ipServiceServer{
+				log:  tt.log,
+				ds:   tt.ds,
+				ipam: ipam,
+			}
+			got, err := i.Delete(tt.ctx, connect.NewRequest(tt.rq))
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ipServiceServer.Delete() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.want == nil && got == nil {
+				return
+			}
+			if tt.want == nil && got != nil {
+				t.Error("tt.want is nil but got is not")
+				return
+			}
+			if diff := cmp.Diff(
+				tt.want, got.Msg,
+				cmp.Options{
+					protocmp.Transform(),
+					protocmp.IgnoreFields(
+						&apiv1.IP{}, "created_at", "updated_at", "deleted_at",
+					),
+				},
+			); diff != "" {
+				t.Errorf("ipServiceServer.Delete() = %v, want %vņdiff:%s", got.Msg, tt.want, diff)
+			}
+		})
+	}
+}
+
+func createIPs(t *testing.T, ctx context.Context, ds *generic.Datastore, ipam ipamv1connect.IpamServiceClient, prefixesMap map[string][]string, ips []*metal.IP) {
+	for prefix := range prefixesMap {
+		_, err := ipam.CreatePrefix(ctx, connect.NewRequest(&ipamv1.CreatePrefixRequest{Cidr: prefix}))
+		require.NoError(t, err)
+	}
+	for _, ip := range ips {
+		created, err := ds.IP().Create(ctx, &metal.IP{
+			Name: ip.Name, IPAddress: ip.IPAddress,
+			ProjectID: ip.ProjectID, AllocationUUID: ip.AllocationUUID,
+			ParentPrefixCidr: ip.ParentPrefixCidr, Description: ip.Description,
+			NetworkID: ip.NetworkID, Type: ip.Type, Tags: ip.Tags,
+		})
+		require.NoError(t, err)
+
+		var prefix string
+		for pfx, newIPs := range prefixesMap {
+			if slices.Contains(newIPs, ip.IPAddress) {
+				prefix = pfx
+			}
+		}
+
+		_, err = ipam.AcquireIP(ctx, connect.NewRequest(&ipamv1.AcquireIPRequest{Ip: &created.IPAddress, PrefixCidr: prefix}))
+		require.NoError(t, err)
 	}
 }
