@@ -10,7 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/metal-stack/api-server/pkg/service/method"
-	v1 "github.com/metal-stack/api/go/api/v1"
+	v1 "github.com/metal-stack/api/go/metalstack/api/v1"
 )
 
 const (

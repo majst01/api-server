@@ -10,8 +10,8 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/google/go-cmp/cmp"
-	apiv1 "github.com/metal-stack/api/go/api/v1"
-	"github.com/metal-stack/api/go/api/v1/apiv1connect"
+	apiv1 "github.com/metal-stack/api/go/metalstack/api/v1"
+	"github.com/metal-stack/api/go/metalstack/api/v1/apiv1connect"
 
 	ipservice "github.com/metal-stack/api-server/pkg/service/ip"
 	tutil "github.com/metal-stack/api-server/pkg/tenant"

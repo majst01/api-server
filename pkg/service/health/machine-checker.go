@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	apiv1 "github.com/metal-stack/api/go/api/v1"
+	apiv1 "github.com/metal-stack/api/go/metalstack/api/v1"
 	metalgo "github.com/metal-stack/metal-go"
 	metalhealth "github.com/metal-stack/metal-go/api/client/health"
 	"github.com/metal-stack/metal-go/api/models"

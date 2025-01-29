@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	v1 "github.com/metal-stack/api/go/api/v1"
+	v1 "github.com/metal-stack/api/go/metalstack/api/v1"
 	mdcv1 "github.com/metal-stack/masterdata-api/api/v1"
 	mdmv1mock "github.com/metal-stack/masterdata-api/api/v1/mocks"
 	mdc "github.com/metal-stack/masterdata-api/pkg/client"

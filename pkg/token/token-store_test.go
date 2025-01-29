@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	v1 "github.com/metal-stack/api/go/api/v1"
+	v1 "github.com/metal-stack/api/go/metalstack/api/v1"
 	"github.com/metal-stack/metal-lib/pkg/pointer"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"

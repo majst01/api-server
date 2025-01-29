@@ -8,8 +8,8 @@ import (
 
 	"connectrpc.com/connect"
 	"connectrpc.com/validate"
-	apiv1 "github.com/metal-stack/api/go/api/v1"
-	"github.com/metal-stack/api/go/api/v1/apiv1connect"
+	apiv1 "github.com/metal-stack/api/go/metalstack/api/v1"
+	"github.com/metal-stack/api/go/metalstack/api/v1/apiv1connect"
 	"github.com/stretchr/testify/require"
 )
 

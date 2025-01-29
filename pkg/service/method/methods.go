@@ -1,7 +1,7 @@
 package method
 
 import (
-	v1 "github.com/metal-stack/api/go/api/v1"
+	v1 "github.com/metal-stack/api/go/metalstack/api/v1"
 	"github.com/metal-stack/api/go/permissions"
 )
 

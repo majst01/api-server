@@ -17,6 +17,8 @@ import (
 	"connectrpc.com/grpcreflect"
 	"connectrpc.com/otelconnect"
 	"connectrpc.com/validate"
+
+	"github.com/metal-stack/api/go/metalstack/api/v1/apiv1connect"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"go.opentelemetry.io/otel/exporters/prometheus"
@@ -41,8 +43,8 @@ import (
 	tokencommon "github.com/metal-stack/api-server/pkg/token"
 	"github.com/metal-stack/metal-lib/auditing"
 
-	"github.com/metal-stack/api/go/api/v1/apiv1connect"
 	"github.com/metal-stack/api/go/permissions"
+	ipamv1connect "github.com/metal-stack/go-ipam/api/v1/apiv1connect"
 	mdm "github.com/metal-stack/masterdata-api/pkg/client"
 )
 
@@ -62,6 +64,7 @@ type config struct {
 	MaxRequestsPerMinuteUnauthenticated int
 	RethinkDBSession                    *r.Session
 	RethinkDB                           string
+	Ipam                                ipamv1connect.IpamServiceClient
 }
 type server struct {
 	c   config
@@ -161,7 +164,7 @@ func (s *server) Run() error {
 	if err != nil {
 		return err
 	}
-	ipService := ip.New(ip.Config{Log: s.log, Datastore: ds})
+	ipService := ip.New(ip.Config{Log: s.log, Datastore: ds, Ipam: s.c.Ipam})
 	tokenService := token.New(token.Config{
 		Log:           s.log,
 		CertStore:     certStore,

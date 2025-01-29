@@ -5,8 +5,8 @@ import (
 	"log/slog"
 
 	"connectrpc.com/connect"
-	apiv1 "github.com/metal-stack/api/go/api/v1"
-	"github.com/metal-stack/api/go/api/v1/apiv1connect"
+	apiv1 "github.com/metal-stack/api/go/metalstack/api/v1"
+	"github.com/metal-stack/api/go/metalstack/api/v1/apiv1connect"
 	"github.com/metal-stack/v"
 )
 

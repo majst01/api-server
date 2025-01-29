@@ -11,8 +11,8 @@ import (
 	putil "github.com/metal-stack/api-server/pkg/project"
 
 	"github.com/metal-stack/api-server/pkg/token"
-	v1 "github.com/metal-stack/api/go/api/v1"
-	"github.com/metal-stack/api/go/api/v1/apiv1connect"
+	v1 "github.com/metal-stack/api/go/metalstack/api/v1"
+	"github.com/metal-stack/api/go/metalstack/api/v1/apiv1connect"
 )
 
 type Config struct {

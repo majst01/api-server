@@ -9,11 +9,14 @@ require (
 	connectrpc.com/otelconnect v0.7.1
 	connectrpc.com/validate v0.1.0
 	github.com/alicebob/miniredis/v2 v2.34.0
+	github.com/avast/retry-go/v4 v4.6.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.6.0
+	github.com/klauspost/connect-compress/v2 v2.0.0
 	github.com/lestrrat-go/jwx/v2 v2.1.3
-	github.com/metal-stack/api v0.8.2
+	github.com/metal-stack/api v0.0.0
+	github.com/metal-stack/go-ipam v1.14.8
 	github.com/metal-stack/masterdata-api v0.11.5
 	github.com/metal-stack/metal-go v0.39.6
 	github.com/metal-stack/metal-lib v0.19.0
@@ -33,6 +36,7 @@ require (
 	golang.org/x/sync v0.10.0
 	google.golang.org/protobuf v1.36.4
 	gopkg.in/rethinkdb/rethinkdb-go.v6 v6.2.2
+
 )
 
 replace github.com/metal-stack/api => ../api

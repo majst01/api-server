@@ -14,7 +14,7 @@ import (
 	putil "github.com/metal-stack/api-server/pkg/project"
 	tokenservice "github.com/metal-stack/api-server/pkg/service/token"
 	"github.com/metal-stack/api-server/pkg/token"
-	v1 "github.com/metal-stack/api/go/api/v1"
+	v1 "github.com/metal-stack/api/go/metalstack/api/v1"
 	"github.com/metal-stack/metal-lib/pkg/pointer"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
@@ -228,7 +228,7 @@ func checkToken(ctx context.Context, opa *opa, bearer string) error {
 		return "Bearer " + bearer
 	}
 
-	_, err := opa.decide(ctx, "/api.v1.IPService/Get", jwtTokenFunc, v1.IPServiceGetRequest{
+	_, err := opa.decide(ctx, "/metalstack.api.v1.IPService/Get", jwtTokenFunc, v1.IPServiceGetRequest{
 		Project: "test-project",
 	})
 

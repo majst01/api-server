@@ -13,7 +13,7 @@ import (
 	"github.com/metal-stack/api-server/pkg/certs"
 	putil "github.com/metal-stack/api-server/pkg/project"
 	"github.com/metal-stack/api-server/pkg/token"
-	v1 "github.com/metal-stack/api/go/api/v1"
+	v1 "github.com/metal-stack/api/go/metalstack/api/v1"
 	"github.com/metal-stack/api/go/permissions"
 	"github.com/metal-stack/metal-lib/pkg/pointer"
 	"github.com/redis/go-redis/v9"

@@ -9,8 +9,9 @@ import (
 	"connectrpc.com/connect"
 	"github.com/metal-stack/api-server/pkg/db/generic"
 	"github.com/metal-stack/api-server/pkg/db/metal"
-	apiv1 "github.com/metal-stack/api/go/api/v1"
-	"github.com/metal-stack/api/go/api/v1/apiv1connect"
+	apiv1 "github.com/metal-stack/api/go/metalstack/api/v1"
+	"github.com/metal-stack/api/go/metalstack/api/v1/apiv1connect"
+	ipamv1connect "github.com/metal-stack/go-ipam/api/v1/apiv1connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	r "gopkg.in/rethinkdb/rethinkdb-go.v6"
 )
@@ -18,10 +19,12 @@ import (
 type Config struct {
 	Log       *slog.Logger
 	Datastore *generic.Datastore
+	Ipam      ipamv1connect.IpamServiceClient
 }
 type ipServiceServer struct {
-	log *slog.Logger
-	ds  *generic.Datastore
+	log  *slog.Logger
+	ds   *generic.Datastore
+	ipam ipamv1connect.IpamServiceClient
 }
 
 func New(c Config) apiv1connect.IPServiceHandler {

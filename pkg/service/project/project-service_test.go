@@ -12,7 +12,7 @@ import (
 	putil "github.com/metal-stack/api-server/pkg/project"
 	tutil "github.com/metal-stack/api-server/pkg/tenant"
 	"github.com/metal-stack/api-server/pkg/token"
-	apiv1 "github.com/metal-stack/api/go/api/v1"
+	apiv1 "github.com/metal-stack/api/go/metalstack/api/v1"
 	mdmv1 "github.com/metal-stack/masterdata-api/api/v1"
 	mdmv1mock "github.com/metal-stack/masterdata-api/api/v1/mocks"
 	mdc "github.com/metal-stack/masterdata-api/pkg/client"

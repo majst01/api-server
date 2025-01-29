@@ -10,7 +10,7 @@ import (
 	"github.com/metal-stack/api-server/pkg/certs"
 	"github.com/metal-stack/api-server/pkg/service/token"
 	tokencommon "github.com/metal-stack/api-server/pkg/token"
-	apiv1 "github.com/metal-stack/api/go/api/v1"
+	apiv1 "github.com/metal-stack/api/go/metalstack/api/v1"
 	"github.com/metal-stack/metal-lib/pkg/pointer"
 	"github.com/urfave/cli/v2"
 	"google.golang.org/protobuf/types/known/durationpb"

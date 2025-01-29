@@ -7,7 +7,7 @@ import (
 
 	"connectrpc.com/connect"
 	tutil "github.com/metal-stack/api-server/pkg/tenant"
-	apiv1 "github.com/metal-stack/api/go/api/v1"
+	apiv1 "github.com/metal-stack/api/go/metalstack/api/v1"
 	mdcv1 "github.com/metal-stack/masterdata-api/api/v1"
 	mdc "github.com/metal-stack/masterdata-api/pkg/client"
 	"github.com/metal-stack/metal-lib/pkg/pointer"

@@ -72,12 +72,15 @@ type (
 )
 
 func New(log *slog.Logger, dbname string, queryExecutor r.QueryExecutor) (*Datastore, error) {
+	// Create the database
 	err := r.DBList().Contains(dbname).Do(func(row r.Term) r.Term {
 		return r.Branch(row, nil, r.DBCreate(dbname))
 	}).Exec(queryExecutor)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create database: %w", err)
 	}
+	// create tables
+	// TODO loop over them
 	ip, err := newStorage[*metal.IP](log, dbname, "ip", queryExecutor)
 	if err != nil {
 		return nil, err

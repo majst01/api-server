@@ -4,11 +4,18 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/alicebob/miniredis/v2"
+	"github.com/avast/retry-go/v4"
+	compress "github.com/klauspost/connect-compress/v2"
+
+	ipamv1 "github.com/metal-stack/go-ipam/api/v1"
+	ipamv1connect "github.com/metal-stack/go-ipam/api/v1/apiv1connect"
 	mdm "github.com/metal-stack/masterdata-api/pkg/client"
 	"github.com/metal-stack/metal-lib/auditing"
 	"github.com/metal-stack/v"
@@ -50,6 +57,7 @@ var serveCmd = &cli.Command{
 		adminOrgsFlag,
 		maxRequestsPerMinuteFlag,
 		maxRequestsPerMinuteUnauthenticatedFlag,
+		ipamGrpcEndpointFlag,
 	},
 	Action: func(ctx *cli.Context) error {
 		log, level, err := createLoggers(ctx)
@@ -71,6 +79,12 @@ var serveCmd = &cli.Command{
 			os.Exit(1)
 		}
 
+		ipam, err := createIpamClient(ctx, log)
+		if err != nil {
+			log.Error("unable to create ipam client", "error", err)
+			os.Exit(1)
+		}
+
 		c := config{
 			HttpServerEndpoint:                  ctx.String(httpServerEndpointFlag.Name),
 			MetricsServerEndpoint:               ctx.String(metricServerEndpointFlag.Name),
@@ -87,6 +101,7 @@ var serveCmd = &cli.Command{
 			MaxRequestsPerMinuteUnauthenticated: ctx.Int(maxRequestsPerMinuteUnauthenticatedFlag.Name),
 			RethinkDB:                           ctx.String(rethinkdbDBFlag.Name),
 			RethinkDBSession:                    rethinkDBSession,
+			Ipam:                                ipam,
 		}
 
 		log.Info("running api-server", "version", v.V, "level", level, "http endpoint", c.HttpServerEndpoint)
@@ -209,4 +224,32 @@ func createRedisClient(logger *slog.Logger, address, password string, dbName Red
 	}
 
 	return client, nil
+}
+
+func createIpamClient(cli *cli.Context, log *slog.Logger) (ipamv1connect.IpamServiceClient, error) {
+	ipamgrpcendpoint := cli.String(ipamGrpcEndpointFlag.Name)
+
+	ipamService := ipamv1connect.NewIpamServiceClient(
+		http.DefaultClient,
+		ipamgrpcendpoint,
+		connect.WithGRPC(),
+		compress.WithAll(compress.LevelBalanced),
+	)
+
+	err := retry.Do(func() error {
+		version, err := ipamService.Version(context.Background(), connect.NewRequest(&ipamv1.VersionRequest{}))
+		if err != nil {
+			return err
+		}
+		log.Info("connected to ipam service", "version", version.Msg)
+		return nil
+	})
+
+	if err != nil {
+		log.Error("unable to connect to ipam service", "error", err)
+		return nil, err
+	}
+
+	log.Info("ipam initialized")
+	return ipamService, nil
 }

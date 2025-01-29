@@ -165,6 +165,11 @@ var (
 		Value: 20,
 		Usage: "the maximum requests per minute for unauthenticated api access",
 	}
+	ipamGrpcEndpointFlag = &cli.StringFlag{
+		Name:  "ipam-grpc-endpoind",
+		Value: "http://ipam:9090",
+		Usage: "the ipam grpc server endpoint",
+	}
 )
 
 func main() {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/google/go-cmp/cmp"
-	apiv1 "github.com/metal-stack/api/go/api/v1"
+	apiv1 "github.com/metal-stack/api/go/metalstack/api/v1"
 	"github.com/metal-stack/metal-lib/pkg/testcommon"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
