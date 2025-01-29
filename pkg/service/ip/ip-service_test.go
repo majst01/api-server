@@ -7,13 +7,12 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/metal-stack/api-server/pkg/db/generic"
 	"github.com/metal-stack/api-server/pkg/db/metal"
 	"github.com/metal-stack/api-server/pkg/test"
 	apiv1 "github.com/metal-stack/api/go/api/v1"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/testing/protocmp"
 )
 
 func Test_ipServiceServer_Get(t *testing.T) {
@@ -29,7 +28,8 @@ func Test_ipServiceServer_Get(t *testing.T) {
 	ds, err := generic.New(log, "metal", c)
 	require.NoError(t, err)
 
-	err = ds.IP().Create(ctx, &metal.IP{IPAddress: "1.2.3.4"})
+	_, err = ds.IP().Create(ctx, &metal.IP{IPAddress: "1.2.3.4"})
+
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -79,8 +79,16 @@ func Test_ipServiceServer_Get(t *testing.T) {
 				t.Error("tt.want is nil but got is not")
 				return
 			}
-			if !cmp.Equal(tt.want, got.Msg, cmp.Comparer(proto.Equal), cmpopts.IgnoreFields(apiv1.IP{}, "CreatedAt", "UpdatedAt", "DeletedAt")) {
-				t.Errorf("ipServiceServer.Get() = %v, want %v", got, tt.want)
+			if diff := cmp.Diff(
+				tt.want, got.Msg,
+				cmp.Options{
+					protocmp.Transform(),
+					protocmp.IgnoreFields(
+						&apiv1.IP{}, "created_at", "updated_at", "deleted_at",
+					),
+				},
+			); diff != "" {
+				t.Errorf("ipServiceServer.Get() = %v, want %vņdiff:%s", got.Msg, tt.want, diff)
 			}
 		})
 	}

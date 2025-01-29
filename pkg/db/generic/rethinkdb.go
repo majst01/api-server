@@ -38,7 +38,7 @@ type (
 	}
 
 	Storage[E Entity] interface {
-		Create(ctx context.Context, e E) error
+		Create(ctx context.Context, e E) (E, error)
 		Update(ctx context.Context, new, old E) error
 		Upsert(ctx context.Context, e E) error
 		Delete(ctx context.Context, e E) error
@@ -125,24 +125,25 @@ func newStorage[E Entity](log *slog.Logger, dbname, tableName string, queryExecu
 }
 
 // Create implements Storage.
-func (rs *rethinkStore[E]) Create(ctx context.Context, e E) error {
+func (rs *rethinkStore[E]) Create(ctx context.Context, e E) (E, error) {
 	now := time.Now()
 	e.SetCreated(now)
 	e.SetChanged(now)
 
+	var zero E
 	res, err := rs.table.Insert(e).RunWrite(rs.queryExecutor, r.RunOpts{Context: ctx})
 	if err != nil {
 		if r.IsConflictErr(err) {
-			return Conflict("cannot create %v in database, entity already exists: %s", rs.tableName, e.GetID())
+			return zero, Conflict("cannot create %v in database, entity already exists: %s", rs.tableName, e.GetID())
 		}
-		return fmt.Errorf("cannot create %v in database: %w", rs.tableName, err)
+		return zero, fmt.Errorf("cannot create %v in database: %w", rs.tableName, err)
 	}
 
 	if e.GetID() == "" && len(res.GeneratedKeys) > 0 {
 		e.SetID(res.GeneratedKeys[0])
 	}
 
-	return nil
+	return e, nil
 }
 
 // Delete implements Storage.
