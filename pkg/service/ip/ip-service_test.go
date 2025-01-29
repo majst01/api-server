@@ -2,6 +2,7 @@ package ip
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"testing"
@@ -352,13 +353,23 @@ func Test_ipServiceServer_Delete(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			name:    "get by ip",
+			name:    "delete known ip",
 			log:     log,
 			ctx:     ctx,
 			rq:      &apiv1.IPServiceDeleteRequest{Ip: "1.2.3.4", Project: "p1"},
 			ds:      ds,
 			want:    &apiv1.IPServiceDeleteResponse{Ip: &apiv1.IP{Name: "ip1", Ip: "1.2.3.4", Project: "p1"}},
 			wantErr: false,
+		},
+		{
+			name:           "delete unknown ip",
+			log:            log,
+			ctx:            ctx,
+			rq:             &apiv1.IPServiceDeleteRequest{Ip: "1.2.3.7", Project: "p1"},
+			ds:             ds,
+			want:           nil,
+			wantErr:        true,
+			wantReturnCode: connect.CodeNotFound,
 		},
 	}
 	for _, tt := range tests {
@@ -372,6 +383,12 @@ func Test_ipServiceServer_Delete(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ipServiceServer.Delete() error = %v, wantErr %v", err, tt.wantErr)
 				return
+			}
+			if (err != nil) && tt.wantErr {
+				var connectErr *connect.Error
+				if errors.As(err, &connectErr) && tt.wantReturnCode != connectErr.Code() {
+					t.Errorf("ipServiceServer.Delete() errcode = %v, wantReturnCode %v", connectErr.Code(), tt.wantReturnCode)
+				}
 			}
 			if tt.want == nil && got == nil {
 				return
