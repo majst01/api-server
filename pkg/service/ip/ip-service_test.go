@@ -22,6 +22,8 @@ func Test_ipServiceServer_Get(t *testing.T) {
 		_ = container.Terminate(context.Background())
 	}()
 
+	ipam := test.StartIpam(t)
+
 	ctx := context.Background()
 	log := slog.Default()
 
@@ -64,8 +66,9 @@ func Test_ipServiceServer_Get(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			i := &ipServiceServer{
-				log: tt.log,
-				ds:  tt.ds,
+				log:  tt.log,
+				ds:   tt.ds,
+				ipam: ipam,
 			}
 			got, err := i.Get(tt.ctx, connect.NewRequest(tt.rq))
 			if (err != nil) != tt.wantErr {

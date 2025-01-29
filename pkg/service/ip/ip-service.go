@@ -2,6 +2,7 @@ package ip
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/metal-stack/api-server/pkg/db/metal"
 	apiv1 "github.com/metal-stack/api/go/metalstack/api/v1"
 	"github.com/metal-stack/api/go/metalstack/api/v1/apiv1connect"
+	ipamv1 "github.com/metal-stack/go-ipam/api/v1"
 	ipamv1connect "github.com/metal-stack/go-ipam/api/v1/apiv1connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	r "gopkg.in/rethinkdb/rethinkdb-go.v6"
@@ -38,6 +40,7 @@ func (i *ipServiceServer) Get(ctx context.Context, rq *connect.Request[apiv1.IPS
 	i.log.Debug("get", "ip", rq)
 	req := rq.Msg
 
+	// Project is already checked in the tenant-interceptor, ipam must not be consulted
 	resp, err := i.ds.IP().Get(ctx, req.Ip)
 	if err != nil {
 		if generic.IsNotFound(err) {
@@ -86,14 +89,31 @@ func (i *ipServiceServer) Delete(ctx context.Context, rq *connect.Request[apiv1.
 	req := rq.Msg
 
 	resp, err := i.ds.IP().Get(ctx, req.Ip)
-	if err != nil { // TODO notfound
+	if err != nil {
+		if generic.IsNotFound(err) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
 		return nil, err
 	}
 
+	// TODO also delete in go-ipam in one transaction
 	err = i.ds.IP().Delete(ctx, &metal.IP{IPAddress: req.Ip})
-	if err != nil { // TODO notfound
+	if err != nil {
+		if generic.IsNotFound(err) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
 		return nil, err
 	}
+	_, err = i.ipam.ReleaseIP(ctx, connect.NewRequest(&ipamv1.ReleaseIPRequest{Ip: req.Ip, PrefixCidr: resp.ParentPrefixCidr}))
+	if err != nil {
+		var connectErr *connect.Error
+		if errors.As(err, &connectErr) {
+			if connectErr.Code() != connect.CodeNotFound {
+				return nil, err
+			}
+		}
+	}
+
 	return connect.NewResponse(&apiv1.IPServiceDeleteResponse{
 		Ip: convert(resp),
 	}), nil
